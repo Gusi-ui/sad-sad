@@ -1,0 +1,109 @@
+---
+import AppLayout from '../../../layouts/AppLayout.astro';
+import { db } from '../../../lib/db';
+import { randomId } from '../../../lib/crypto';
+
+const account = Astro.locals.account;
+const currentYear = new Date().getFullYear();
+const year = Number(Astro.url.searchParams.get('year') ?? currentYear);
+const safeYear = Number.isFinite(year) ? year : currentYear;
+
+if (Astro.request.method === 'POST') {
+  const formData = await Astro.request.formData();
+  const date = String(formData.get('date') ?? '').trim(); // YYYY-MM-DD
+  const name = String(formData.get('name') ?? '').trim();
+  const scope = String(formData.get('scope') ?? 'mataro');
+  const y = Number(date.slice(0, 4));
+
+  if (date && name && Number.isFinite(y)) {
+    await db()
+      .prepare(`INSERT OR IGNORE INTO holidays (id, date, name, scope, year) VALUES (?, ?, ?, ?, ?)`)
+      .bind(randomId(), date, name, scope, y)
+      .run();
+    return Astro.redirect(`/admin/holidays?year=${safeYear}`);
+  }
+}
+
+const holidays = await db()
+  .prepare(`SELECT id, date, name, scope FROM holidays WHERE year = ? ORDER BY date ASC, scope ASC`)
+  .bind(safeYear)
+  .all<{ id: string; date: string; name: string; scope: string }>();
+
+type HolidayRow = (typeof holidays.results)[number];
+---
+
+<AppLayout title="Festivos | Admin">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold tracking-tight">Festivos</h1>
+      <p class="mt-1 text-sm text-zinc-600">Sesión: {account?.email}</p>
+    </div>
+    <a class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium" href="/admin">
+      Volver
+    </a>
+  </div>
+
+  <div class="mt-6 grid gap-6 lg:grid-cols-3">
+    <section class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm lg:col-span-1">
+      <h2 class="text-sm font-semibold">Año</h2>
+      <form method="get" class="mt-3 flex items-center gap-2">
+        <input
+          class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+          name="year"
+          inputmode="numeric"
+          value={String(safeYear)}
+        />
+        <button class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium">Ver</button>
+      </form>
+
+      <h2 class="mt-6 text-sm font-semibold">Añadir festivo</h2>
+      <form method="post" class="mt-4 space-y-4">
+        <label class="block">
+          <span class="text-sm font-medium text-zinc-700">Fecha</span>
+          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" type="date" name="date" required />
+        </label>
+        <label class="block">
+          <span class="text-sm font-medium text-zinc-700">Nombre</span>
+          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="name" required />
+        </label>
+        <label class="block">
+          <span class="text-sm font-medium text-zinc-700">Ámbito</span>
+          <select class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="scope">
+            <option value="national">Nacional</option>
+            <option value="catalonia">Cataluña</option>
+            <option value="barcelona">Barcelona</option>
+            <option value="mataro" selected>Mataró</option>
+          </select>
+        </label>
+        <button class="inline-flex w-full items-center justify-center rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">
+          Guardar
+        </button>
+      </form>
+    </section>
+
+    <section class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm lg:col-span-2">
+      <h2 class="text-sm font-semibold">Listado {safeYear}</h2>
+      <div class="mt-4 overflow-x-auto">
+        <table class="w-full min-w-[720px] text-left text-sm">
+          <thead class="text-xs uppercase text-zinc-500">
+            <tr>
+              <th class="px-3 py-2">Fecha</th>
+              <th class="px-3 py-2">Nombre</th>
+              <th class="px-3 py-2">Ámbito</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-zinc-100">
+            {holidays.results.map((h: HolidayRow) => (
+              <tr>
+                <td class="px-3 py-2">{h.date}</td>
+                <td class="px-3 py-2">{h.name}</td>
+                <td class="px-3 py-2">{h.scope}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</AppLayout>
+

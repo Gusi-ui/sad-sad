@@ -1,0 +1,7 @@
+---
+if (!Astro.locals.account) {
+  return Astro.redirect('/login');
+}
+
+return Astro.redirect(Astro.locals.account.role === 'ADMIN' ? '/admin' : '/w/today');
+---

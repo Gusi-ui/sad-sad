@@ -1,0 +1,272 @@
+---
+import AppLayout from '../../../layouts/AppLayout.astro';
+import { db } from '../../../lib/db';
+import { datesOfIsoWeek, getIsoWeekKey, toYmd } from '../../../lib/dates';
+import { randomId } from '../../../lib/crypto';
+
+export const prerender = false;
+
+const currentWeek = getIsoWeekKey(new Date());
+const weekKey = String(Astro.url.searchParams.get('week') ?? currentWeek);
+const weekDates = datesOfIsoWeek(weekKey);
+if (!weekDates) return Astro.redirect(`/admin/schedule/week?week=${currentWeek}`);
+
+const database = db();
+
+const holidayScopes = ['national', 'catalonia', 'barcelona', 'mataro'] as const;
+
+const timeToMinutes = (hhmm: string) => {
+  const [hRaw, mRaw] = hhmm.split(':');
+  const h = Number(hRaw);
+  const m = Number(mRaw);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return h * 60 + m;
+};
+
+const overlaps = (aStart: number, aEnd: number, bStart: number, bEnd: number) => aStart < bEnd && bStart < aEnd;
+
+const getDayKind = async (dateYmd: string, weekday0to6: number) => {
+  const isWeekend = weekday0to6 === 0 || weekday0to6 === 6;
+  const holiday = await database
+    .prepare(`SELECT 1 FROM holidays WHERE date = ? AND scope IN (${holidayScopes.map(() => '?').join(',')}) LIMIT 1`)
+    .bind(dateYmd, ...holidayScopes)
+    .first();
+  if (holiday) return 'festivo' as const;
+  if (isWeekend) return 'fin_semana' as const;
+  return 'laborable' as const;
+};
+
+if (Astro.request.method === 'POST') {
+  const formData = await Astro.request.formData();
+  const action = String(formData.get('_action') ?? 'generate');
+
+  if (action === 'assign') {
+    const assignmentId = String(formData.get('assignmentId') ?? '').trim();
+    const workerIdRaw = String(formData.get('workerId') ?? '').trim();
+    const workerId = workerIdRaw === '' ? null : workerIdRaw;
+
+    if (assignmentId) {
+      await database
+        .prepare(`UPDATE assignments SET assigned_worker_id = ? WHERE id = ?`)
+        .bind(workerId, assignmentId)
+        .run();
+    }
+    return Astro.redirect(`/admin/schedule/week?week=${weekKey}`);
+  }
+
+  const dates = weekDates.map((d) => ({ d, ymd: toYmd(new Date(d)) }));
+
+  const users = await database
+    .prepare(`SELECT id, name FROM service_users WHERE active = 1 ORDER BY created_at ASC`)
+    .all<{ id: string; name: string }>();
+
+  const templates = await database
+    .prepare(
+      `SELECT id, service_user_id, kind, weekday, start_time, end_time
+       FROM service_templates
+       ORDER BY service_user_id ASC, kind ASC, weekday ASC, start_time ASC`
+    )
+    .all<{ id: string; service_user_id: string; kind: 'laborable' | 'festivo'; weekday: number | null; start_time: string; end_time: string }>();
+
+  const byUser = new Map<string, (typeof templates.results)[number][]>();
+  for (const t of templates.results) {
+    const arr = byUser.get(t.service_user_id) ?? [];
+    arr.push(t);
+    byUser.set(t.service_user_id, arr);
+  }
+
+  for (const u of users.results) {
+    const userTemplates = byUser.get(u.id) ?? [];
+    if (userTemplates.length === 0) continue;
+
+    for (const { d, ymd } of dates) {
+      const weekday = d.getUTCDay(); // 0..6
+      const kind = await getDayKind(ymd, weekday);
+
+      const applicable = userTemplates.filter((t) => {
+        if (kind === 'laborable') {
+          if (t.kind !== 'laborable') return false;
+          if (t.weekday === null) return true;
+          return t.weekday === weekday;
+        }
+        // festivo o fin_semana
+        if (t.kind !== 'festivo') return false;
+        if (t.weekday === null) return true;
+        return t.weekday === weekday;
+      });
+
+      for (const t of applicable) {
+        await database
+          .prepare(
+            `INSERT OR IGNORE INTO assignments
+              (id, date, service_user_id, template_id, kind, planned_start, planned_end, source)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'template')`
+          )
+          .bind(randomId(), ymd, u.id, t.id, kind === 'fin_semana' ? 'fin_semana' : t.kind, t.start_time, t.end_time)
+          .run();
+      }
+    }
+  }
+
+  return Astro.redirect(`/admin/schedule/week?week=${weekKey}`);
+}
+
+const assignments = await database
+  .prepare(
+    `SELECT a.id, a.date, a.kind, a.planned_start, a.planned_end, a.assigned_worker_id,
+            su.name as user_name,
+            w.name as worker_name,
+            t.required_worker_type as required_worker_type
+     FROM assignments a
+     JOIN service_users su ON su.id = a.service_user_id
+     LEFT JOIN workers w ON w.id = a.assigned_worker_id
+     LEFT JOIN service_templates t ON t.id = a.template_id
+     WHERE a.date >= ? AND a.date <= ?
+     ORDER BY a.date ASC, a.planned_start ASC, su.name ASC`
+  )
+  .bind(toYmd(new Date(weekDates[0])), toYmd(new Date(weekDates[6])))
+  .all<{
+    id: string;
+    date: string;
+    kind: string;
+    planned_start: string;
+    planned_end: string;
+    assigned_worker_id: string | null;
+    user_name: string;
+    worker_name: string | null;
+    required_worker_type: string | null;
+  }>();
+
+type AssignmentRow = (typeof assignments.results)[number];
+
+const workers = await database
+  .prepare(`SELECT id, name, worker_type, active FROM workers WHERE active = 1 ORDER BY name ASC`)
+  .all<{ id: string; name: string; worker_type: 'laborable' | 'festivo' | 'ambos'; active: number }>();
+
+type WorkerRow = (typeof workers.results)[number];
+
+const workerIntervalsByDate = new Map<string, { start: number; end: number }[]>();
+for (const a of assignments.results) {
+  if (!a.assigned_worker_id) continue;
+  const start = timeToMinutes(a.planned_start);
+  const end = timeToMinutes(a.planned_end);
+  if (start === null || end === null) continue;
+  const key = `${a.assigned_worker_id}|${a.date}`;
+  const arr = workerIntervalsByDate.get(key) ?? [];
+  arr.push({ start, end });
+  workerIntervalsByDate.set(key, arr);
+}
+
+const matchesWorkerType = (required: string | null, workerType: WorkerRow['worker_type']) => {
+  const req = required ?? 'ambos';
+  if (req === 'ambos') return true;
+  if (workerType === 'ambos') return true;
+  return workerType === req;
+};
+
+const getWorkerAvailability = (workerId: string, date: string, start: number, end: number) => {
+  const key = `${workerId}|${date}`;
+  const intervals = workerIntervalsByDate.get(key) ?? [];
+  for (const it of intervals) {
+    if (overlaps(start, end, it.start, it.end)) return { available: false as const };
+  }
+  return { available: true as const };
+};
+
+type Candidate = { w: WorkerRow; available: boolean };
+---
+
+<AppLayout title="Agenda semanal | Admin">
+  <div class="flex items-center justify-between gap-4">
+    <div>
+      <a class="text-sm font-medium text-zinc-700 underline decoration-zinc-300" href="/admin">← Volver</a>
+      <h1 class="mt-2 text-2xl font-semibold tracking-tight">Agenda semanal</h1>
+      <p class="mt-1 text-sm text-zinc-600">Semana: {weekKey}</p>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <form method="get" class="flex items-center gap-2">
+        <input class="w-36 rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="week" value={weekKey} />
+        <button class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium">Ir</button>
+      </form>
+      <form method="post">
+        <input type="hidden" name="_action" value="generate" />
+        <button class="rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white">
+          Generar desde plantillas
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <section class="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+    <h2 class="text-sm font-semibold">Servicios ({assignments.results.length})</h2>
+    <div class="mt-4 overflow-x-auto">
+      <table class="w-full min-w-[900px] text-left text-sm">
+        <thead class="text-xs uppercase text-zinc-500">
+          <tr>
+            <th class="px-3 py-2">Fecha</th>
+            <th class="px-3 py-2">Usuario</th>
+            <th class="px-3 py-2">Tipo</th>
+            <th class="px-3 py-2">Inicio</th>
+            <th class="px-3 py-2">Fin</th>
+            <th class="px-3 py-2">Requiere</th>
+            <th class="px-3 py-2">Asignación</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-zinc-100">
+          {assignments.results.map((a: AssignmentRow) => (
+            <tr class={a.assigned_worker_id ? '' : 'bg-amber-50/40'}>
+              <td class="px-3 py-2">{a.date}</td>
+              <td class="px-3 py-2">{a.user_name}</td>
+              <td class="px-3 py-2">{a.kind}</td>
+              <td class="px-3 py-2">{a.planned_start}</td>
+              <td class="px-3 py-2">{a.planned_end}</td>
+              <td class="px-3 py-2">{a.required_worker_type ?? '—'}</td>
+              <td class="px-3 py-2">
+                {(() => {
+                  const start = timeToMinutes(a.planned_start);
+                  const end = timeToMinutes(a.planned_end);
+                  if (start === null || end === null) {
+                    return <span class="text-xs text-zinc-600">Horas inválidas</span>;
+                  }
+
+                  const candidates = workers.results
+                    .filter((w: WorkerRow) => matchesWorkerType(a.required_worker_type, w.worker_type))
+                    .map((w: WorkerRow) => {
+                      const availability = getWorkerAvailability(w.id, a.date, start, end);
+                      const candidate: Candidate = { w, available: availability.available };
+                      return candidate;
+                    })
+                    .sort((x: Candidate, y: Candidate) => Number(y.available) - Number(x.available) || x.w.name.localeCompare(y.w.name));
+
+                  const suggested = candidates.find((c: Candidate) => c.available)?.w.id ?? '';
+
+                  return (
+                    <form method="post" class="flex items-center gap-2">
+                      <input type="hidden" name="_action" value="assign" />
+                      <input type="hidden" name="assignmentId" value={a.id} />
+                      <select class="min-w-64 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm" name="workerId">
+                        <option value="">— Sin asignar —</option>
+                        {candidates.map(({ w, available }: Candidate) => (
+                          <option value={w.id} selected={a.assigned_worker_id === w.id || (!a.assigned_worker_id && suggested === w.id)}>
+                            {w.name} {available ? '' : '(solape)'}
+                          </option>
+                        ))}
+                      </select>
+                      <button class="rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white">Guardar</button>
+                      <span class="text-xs text-zinc-600">
+                        {a.worker_name ? `Actual: ${a.worker_name}` : 'Sugerida: primera disponible'}
+                      </span>
+                    </form>
+                  );
+                })()}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</AppLayout>
+

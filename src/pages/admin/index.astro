@@ -1,0 +1,39 @@
+---
+import AppLayout from '../../layouts/AppLayout.astro';
+const account = Astro.locals.account;
+---
+
+<AppLayout title="Admin | SAD">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold tracking-tight">Panel de administración</h1>
+      <p class="mt-1 text-sm text-zinc-600">Sesión: {account?.email}</p>
+    </div>
+
+    <form method="post" action="/api/auth/logout">
+      <button class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-900">
+        Cerrar sesión
+      </button>
+    </form>
+  </div>
+
+  <div class="mt-6 grid gap-4 md:grid-cols-3">
+    <a class="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm hover:border-zinc-300" href="/admin/workers">
+      <div class="text-sm font-medium">Trabajadoras</div>
+      <div class="mt-1 text-xs text-zinc-600">Alta, contratos y resumen semanal</div>
+    </a>
+    <a class="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm hover:border-zinc-300" href="/admin/users">
+      <div class="text-sm font-medium">Usuarios</div>
+      <div class="mt-1 text-xs text-zinc-600">Horarios y planificación</div>
+    </a>
+    <a class="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm hover:border-zinc-300" href="/admin/holidays">
+      <div class="text-sm font-medium">Festivos</div>
+      <div class="mt-1 text-xs text-zinc-600">Calendario por año</div>
+    </a>
+    <a class="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm hover:border-zinc-300" href="/admin/schedule/week">
+      <div class="text-sm font-medium">Agenda semanal</div>
+      <div class="mt-1 text-xs text-zinc-600">Generar desde plantillas</div>
+    </a>
+  </div>
+</AppLayout>
+

@@ -1,0 +1,179 @@
+---
+import AppLayout from '../../../layouts/AppLayout.astro';
+import { db } from '../../../lib/db';
+import { randomId } from '../../../lib/crypto';
+
+export const prerender = false;
+
+const { userId } = Astro.params;
+if (!userId) return Astro.redirect('/admin/users');
+
+if (Astro.request.method === 'POST') {
+  const formData = await Astro.request.formData();
+  const action = String(formData.get('_action') ?? '');
+  const database = db();
+
+  if (action === 'update_user') {
+    const name = String(formData.get('name') ?? '').trim();
+    const address = String(formData.get('address') ?? '').trim();
+    const notes = String(formData.get('notes') ?? '').trim();
+    const active = formData.get('active') === 'on' ? 1 : 0;
+
+    if (name) {
+      await database
+        .prepare(`UPDATE service_users SET name = ?, address = ?, notes = ?, active = ? WHERE id = ?`)
+        .bind(name, address || null, notes || null, active, userId)
+        .run();
+    }
+    return Astro.redirect(`/admin/users/${userId}`);
+  }
+
+  if (action === 'add_template') {
+    const kind = String(formData.get('kind') ?? 'laborable');
+    const weekdayRaw = String(formData.get('weekday') ?? '').trim();
+    const weekday = weekdayRaw === '' ? null : Number(weekdayRaw);
+    const startTime = String(formData.get('startTime') ?? '').trim();
+    const endTime = String(formData.get('endTime') ?? '').trim();
+    const requiredWorkerType = String(formData.get('requiredWorkerType') ?? 'laborable');
+
+    const weekdayOk = weekday === null || (Number.isFinite(weekday) && weekday >= 0 && weekday <= 6);
+    if (startTime && endTime && weekdayOk) {
+      await database
+        .prepare(
+          `INSERT INTO service_templates (id, service_user_id, kind, weekday, start_time, end_time, required_worker_type)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(randomId(), userId, kind, weekday, startTime, endTime, requiredWorkerType)
+        .run();
+    }
+
+    return Astro.redirect(`/admin/users/${userId}`);
+  }
+}
+
+const user = await db()
+  .prepare(`SELECT id, name, address, notes, active FROM service_users WHERE id = ? LIMIT 1`)
+  .bind(userId)
+  .first<{ id: string; name: string; address: string | null; notes: string | null; active: number }>();
+
+if (!user) return Astro.redirect('/admin/users');
+
+const templates = await db()
+  .prepare(
+    `SELECT id, kind, weekday, start_time, end_time, required_worker_type
+     FROM service_templates
+     WHERE service_user_id = ?
+     ORDER BY kind ASC, weekday ASC, start_time ASC`
+  )
+  .bind(userId)
+  .all<{ id: string; kind: string; weekday: number | null; start_time: string; end_time: string; required_worker_type: string }>();
+
+type TemplateRow = (typeof templates.results)[number];
+
+const weekdayLabel = (weekday: number | null) => {
+  if (weekday === null) return '—';
+  const labels = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  return labels[weekday] ?? String(weekday);
+};
+---
+
+<AppLayout title={`${user.name} | Admin`}>
+  <div>
+    <a class="text-sm font-medium text-zinc-700 underline decoration-zinc-300" href="/admin/users">← Volver a usuarios</a>
+    <h1 class="mt-2 text-2xl font-semibold tracking-tight">{user.name}</h1>
+    <p class="mt-1 text-sm text-zinc-600">ID: {user.id}</p>
+  </div>
+
+  <div class="mt-6 grid gap-6 lg:grid-cols-2">
+    <section class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+      <h2 class="text-sm font-semibold">Datos</h2>
+      <form method="post" class="mt-4 space-y-4">
+        <input type="hidden" name="_action" value="update_user" />
+        <label class="block">
+          <span class="text-sm font-medium text-zinc-700">Nombre</span>
+          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="name" value={user.name} required />
+        </label>
+        <label class="block">
+          <span class="text-sm font-medium text-zinc-700">Dirección</span>
+          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="address" value={user.address ?? ''} />
+        </label>
+        <label class="block">
+          <span class="text-sm font-medium text-zinc-700">Notas</span>
+          <textarea class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="notes" rows="4">{user.notes ?? ''}</textarea>
+        </label>
+        <label class="flex items-center gap-2">
+          <input class="h-4 w-4" type="checkbox" name="active" checked={user.active === 1} />
+          <span class="text-sm text-zinc-700">Activo</span>
+        </label>
+        <button class="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">Guardar</button>
+      </form>
+    </section>
+
+    <section class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+      <h2 class="text-sm font-semibold">Plantillas de servicio</h2>
+
+      <form method="post" class="mt-4 grid gap-4 sm:grid-cols-2">
+        <input type="hidden" name="_action" value="add_template" />
+        <label class="block">
+          <span class="text-sm font-medium text-zinc-700">Tipo de día</span>
+          <select class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="kind">
+            <option value="laborable">Laborable</option>
+            <option value="festivo">Festivo/Finde</option>
+          </select>
+        </label>
+
+        <label class="block">
+          <span class="text-sm font-medium text-zinc-700">Día de semana (0=Dom…6=Sáb)</span>
+          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="weekday" inputmode="numeric" placeholder="(vacío = aplica)" />
+        </label>
+
+        <label class="block">
+          <span class="text-sm font-medium text-zinc-700">Inicio</span>
+          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="startTime" placeholder="08:00" required />
+        </label>
+
+        <label class="block">
+          <span class="text-sm font-medium text-zinc-700">Fin</span>
+          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="endTime" placeholder="09:30" required />
+        </label>
+
+        <label class="block sm:col-span-2">
+          <span class="text-sm font-medium text-zinc-700">Requiere trabajadora</span>
+          <select class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="requiredWorkerType">
+            <option value="laborable">Laborable</option>
+            <option value="festivo">Festivo/Finde</option>
+            <option value="ambos">Ambos</option>
+          </select>
+        </label>
+
+        <button class="sm:col-span-2 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">Añadir plantilla</button>
+      </form>
+
+      <div class="mt-6 overflow-x-auto">
+        <table class="w-full min-w-[640px] text-left text-sm">
+          <thead class="text-xs uppercase text-zinc-500">
+            <tr>
+              <th class="px-3 py-2">Tipo</th>
+              <th class="px-3 py-2">Semana</th>
+              <th class="px-3 py-2">Inicio</th>
+              <th class="px-3 py-2">Fin</th>
+              <th class="px-3 py-2">Requiere</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-zinc-100">
+            {templates.results.map((t: TemplateRow) => (
+              <tr>
+                <td class="px-3 py-2">{t.kind}</td>
+                <td class="px-3 py-2">{weekdayLabel(t.weekday)}</td>
+                <td class="px-3 py-2">{t.start_time}</td>
+                <td class="px-3 py-2">{t.end_time}</td>
+                <td class="px-3 py-2">{t.required_worker_type}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</AppLayout>
+
