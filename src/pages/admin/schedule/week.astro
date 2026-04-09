@@ -15,6 +15,12 @@ const database = db();
 
 const holidayScopes = ['national', 'catalonia', 'barcelona', 'mataro'] as const;
 
+const addDaysUtc = (date: Date, days: number) => {
+  const d = new Date(date);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d;
+};
+
 const timeToMinutes = (hhmm: string) => {
   const [hRaw, mRaw] = hhmm.split(':');
   const h = Number(hRaw);
@@ -115,6 +121,7 @@ if (Astro.request.method === 'POST') {
 const assignments = await database
   .prepare(
     `SELECT a.id, a.date, a.kind, a.planned_start, a.planned_end, a.assigned_worker_id,
+            a.service_user_id,
             su.name as user_name,
             w.name as worker_name,
             t.required_worker_type as required_worker_type
@@ -133,6 +140,7 @@ const assignments = await database
     planned_start: string;
     planned_end: string;
     assigned_worker_id: string | null;
+    service_user_id: string;
     user_name: string;
     worker_name: string | null;
     required_worker_type: string | null;
@@ -158,6 +166,16 @@ for (const a of assignments.results) {
   workerIntervalsByDate.set(key, arr);
 }
 
+const workerLoadMinutes = new Map<string, number>();
+for (const a of assignments.results) {
+  if (!a.assigned_worker_id) continue;
+  const start = timeToMinutes(a.planned_start);
+  const end = timeToMinutes(a.planned_end);
+  if (start === null || end === null) continue;
+  const duration = Math.max(0, end - start);
+  workerLoadMinutes.set(a.assigned_worker_id, (workerLoadMinutes.get(a.assigned_worker_id) ?? 0) + duration);
+}
+
 const matchesWorkerType = (required: string | null, workerType: WorkerRow['worker_type']) => {
   const req = required ?? 'ambos';
   if (req === 'ambos') return true;
@@ -174,7 +192,34 @@ const getWorkerAvailability = (workerId: string, date: string, start: number, en
   return { available: true as const };
 };
 
-type Candidate = { w: WorkerRow; available: boolean };
+const weekStartYmd = toYmd(new Date(weekDates[0]));
+const historyStartYmd = toYmd(addDaysUtc(new Date(weekDates[0]), -56)); // 8 semanas
+
+const habitualRows = await database
+  .prepare(
+    `SELECT service_user_id, assigned_worker_id, COUNT(*) as c
+     FROM assignments
+     WHERE assigned_worker_id IS NOT NULL
+       AND date >= ? AND date < ?
+     GROUP BY service_user_id, assigned_worker_id`
+  )
+  .bind(historyStartYmd, weekStartYmd)
+  .all<{ service_user_id: string; assigned_worker_id: string; c: number }>();
+
+const habitualByUser = new Map<string, { workerId: string; count: number }>();
+for (const row of habitualRows.results) {
+  const current = habitualByUser.get(row.service_user_id);
+  if (!current || row.c > current.count) habitualByUser.set(row.service_user_id, { workerId: row.assigned_worker_id, count: row.c });
+}
+
+type Candidate = { w: WorkerRow; available: boolean; loadMinutes: number; habitual: boolean };
+
+const formatMinutes = (minutes: number) => {
+  const total = Math.max(0, Math.floor(minutes));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${h}h ${String(m).padStart(2, '0')}m`;
+};
 ---
 
 <AppLayout title="Agenda semanal | Admin">
@@ -235,10 +280,19 @@ type Candidate = { w: WorkerRow; available: boolean };
                     .filter((w: WorkerRow) => matchesWorkerType(a.required_worker_type, w.worker_type))
                     .map((w: WorkerRow) => {
                       const availability = getWorkerAvailability(w.id, a.date, start, end);
-                      const candidate: Candidate = { w, available: availability.available };
+                      const loadMinutes = workerLoadMinutes.get(w.id) ?? 0;
+                      const habitualWorkerId = habitualByUser.get(a.service_user_id)?.workerId ?? null;
+                      const habitual = habitualWorkerId === w.id;
+                      const candidate: Candidate = { w, available: availability.available, loadMinutes, habitual };
                       return candidate;
                     })
-                    .sort((x: Candidate, y: Candidate) => Number(y.available) - Number(x.available) || x.w.name.localeCompare(y.w.name));
+                    .sort(
+                      (x: Candidate, y: Candidate) =>
+                        Number(y.available) - Number(x.available) ||
+                        Number(y.habitual) - Number(x.habitual) ||
+                        x.loadMinutes - y.loadMinutes ||
+                        x.w.name.localeCompare(y.w.name)
+                    );
 
                   const suggested = candidates.find((c: Candidate) => c.available)?.w.id ?? '';
 
@@ -248,9 +302,10 @@ type Candidate = { w: WorkerRow; available: boolean };
                       <input type="hidden" name="assignmentId" value={a.id} />
                       <select class="min-w-64 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm" name="workerId">
                         <option value="">— Sin asignar —</option>
-                        {candidates.map(({ w, available }: Candidate) => (
+                        {candidates.map(({ w, available, habitual }: Candidate) => (
                           <option value={w.id} selected={a.assigned_worker_id === w.id || (!a.assigned_worker_id && suggested === w.id)}>
-                            {w.name} {available ? '' : '(solape)'}
+                            {habitual ? '★ ' : ''}
+                            {w.name} ({formatMinutes(workerLoadMinutes.get(w.id) ?? 0)}) {available ? '' : '(solape)'}
                           </option>
                         ))}
                       </select>

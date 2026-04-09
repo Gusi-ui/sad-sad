@@ -1,0 +1,20 @@
+---
+import WorkerLayout from '../../layouts/WorkerLayout.astro';
+export const prerender = false;
+const account = Astro.locals.account;
+---
+
+<WorkerLayout title="Perfil | SAD" activeTab="profile">
+  <h1 class="text-2xl font-semibold tracking-tight">Perfil</h1>
+  <div class="mt-4 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+    <div class="text-sm font-semibold">Cuenta</div>
+    <div class="mt-2 text-sm text-zinc-700">{account?.email}</div>
+  </div>
+
+  <form class="mt-4" method="post" action="/api/auth/logout">
+    <button class="w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">
+      Cerrar sesión
+    </button>
+  </form>
+</WorkerLayout>
+
