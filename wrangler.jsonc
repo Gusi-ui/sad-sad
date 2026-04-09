@@ -1,20 +1,27 @@
 {
 	"compatibility_date": "2026-04-09",
-	"compatibility_flags": ["global_fetch_strictly_public"],
+	"compatibility_flags": [
+		"global_fetch_strictly_public"
+	],
 	"name": "sad-sad",
 	"main": "@astrojs/cloudflare/entrypoints/server",
 	"assets": {
 		"directory": "./dist",
 		"binding": "ASSETS"
 	},
-	// D1 (SQLite). Crea la DB y pega aquí el database_id cuando deployes:
-	//   npx wrangler d1 create sad
-	// Para desarrollo local, `wrangler d1 ... --local` funciona sin ID.
 	"d1_databases": [
 		{
 			"binding": "DB",
 			"database_name": "sad",
-			"database_id": "REEMPLAZA_CON_TU_DATABASE_ID"
+			"database_id": "7e3c7663-4ef7-48b6-9b6c-adc6ec9d0afb"
+		}
+	],
+	// KV para sesiones de Astro (auto-provisionado por wrangler en el primer deploy).
+	// Para desarrollo local no hace falta: las sesiones usan D1 directamente.
+	"kv_namespaces": [
+		{
+			"binding": "SESSION",
+			"id": "776a74788ff343d3aedf99cce6a2d7e7"
 		}
 	],
 	"observability": {

@@ -1,0 +1,42 @@
+# Despliegue automático del Worker (Astro) en Cloudflare al hacer push a main.
+#
+# Requisitos en GitHub → Settings → Secrets and variables → Actions:
+#   CLOUDFLARE_API_TOKEN   (token con permiso de editar Workers en tu cuenta)
+#   CLOUDFLARE_ACCOUNT_ID  (ID de cuenta, visible en el dashboard de Cloudflare)
+#
+# Migraciones D1: no se ejecutan aquí por defecto. Tras añadir archivos en migrations/,
+# aplica en remoto con: npm run db:migrate (desde tu máquina o un job manual protegido).
+
+name: Deploy Cloudflare Workers
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
