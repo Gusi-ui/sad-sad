@@ -3,6 +3,12 @@ import AppLayout from '../../../layouts/AppLayout.astro';
 import { db } from '../../../lib/db';
 import { randomId } from '../../../lib/crypto';
 import { toYmd } from '../../../lib/dates';
+import {
+  computeWorkerMonthAssignedMinutes,
+  formatHours,
+  minutesToHours,
+  pickContractForMonth
+} from '../../../lib/month-hours';
 
 export const prerender = false;
 
@@ -27,13 +33,19 @@ if (Astro.request.method === 'POST') {
   if (action === 'add_contract') {
     const hoursPerWeekRaw = String(formData.get('hoursPerWeek') ?? '').trim();
     const hoursPerWeek = Number(hoursPerWeekRaw);
+    const hoursPerMonthRaw = String(formData.get('hoursPerMonth') ?? '').trim();
+    const hoursPerMonthParsed = hoursPerMonthRaw === '' ? null : Number(hoursPerMonthRaw);
+    const hoursPerMonth =
+      hoursPerMonthParsed === null || !Number.isFinite(hoursPerMonthParsed) ? null : hoursPerMonthParsed;
     const startDate = String(formData.get('startDate') ?? '').trim();
     const endDate = String(formData.get('endDate') ?? '').trim();
 
     if (Number.isFinite(hoursPerWeek) && hoursPerWeek > 0 && startDate) {
       await database
-        .prepare(`INSERT INTO worker_contracts (id, worker_id, hours_per_week, start_date, end_date) VALUES (?, ?, ?, ?, ?)`)
-        .bind(randomId(), workerId, hoursPerWeek, startDate, endDate || null)
+        .prepare(
+          `INSERT INTO worker_contracts (id, worker_id, hours_per_week, hours_per_month, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?)`
+        )
+        .bind(randomId(), workerId, hoursPerWeek, hoursPerMonth, startDate, endDate || null)
         .run();
     }
     return Astro.redirect(`/admin/workers/${workerId}`);
@@ -48,13 +60,27 @@ const worker = await db()
 if (!worker) return Astro.redirect('/admin/workers');
 
 const contracts = await db()
-  .prepare(`SELECT id, hours_per_week, start_date, end_date FROM worker_contracts WHERE worker_id = ? ORDER BY start_date DESC`)
+  .prepare(
+    `SELECT id, hours_per_week, hours_per_month, start_date, end_date FROM worker_contracts WHERE worker_id = ? ORDER BY start_date DESC`
+  )
   .bind(workerId)
-  .all<{ id: string; hours_per_week: number; start_date: string; end_date: string | null }>();
+  .all<{ id: string; hours_per_week: number; hours_per_month: number | null; start_date: string; end_date: string | null }>();
 
 type ContractRow = (typeof contracts.results)[number];
 
 const today = toYmd(new Date());
+
+const now = new Date();
+const wYear = Number(Astro.url.searchParams.get('year') ?? now.getFullYear());
+const wMonth = Number(Astro.url.searchParams.get('month') ?? now.getMonth() + 1);
+const safeWYear = Number.isFinite(wYear) ? wYear : now.getFullYear();
+const safeWMonth = Number.isFinite(wMonth) && wMonth >= 1 && wMonth <= 12 ? wMonth : now.getMonth() + 1;
+
+const assignedMinutes = await computeWorkerMonthAssignedMinutes(db(), workerId, safeWYear, safeWMonth);
+const assignedHours = minutesToHours(assignedMinutes);
+const contractForMonth = pickContractForMonth(contracts.results, safeWYear, safeWMonth);
+const monthlyCap = contractForMonth?.hours_per_month ?? null;
+const deltaWorker = monthlyCap !== null ? assignedHours - monthlyCap : null;
 ---
 
 <AppLayout title={`${worker.name} | Admin`}>
@@ -95,12 +121,16 @@ const today = toYmd(new Date());
     </section>
 
     <section class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-      <h2 class="text-sm font-semibold">Contrato semanal</h2>
-      <form method="post" class="mt-4 grid gap-4 sm:grid-cols-3">
+      <h2 class="text-sm font-semibold">Contrato (semana y mes)</h2>
+      <form method="post" class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <input type="hidden" name="_action" value="add_contract" />
         <label class="block sm:col-span-1">
           <span class="text-sm font-medium text-zinc-700">Horas/semana</span>
           <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="hoursPerWeek" inputmode="decimal" required />
+        </label>
+        <label class="block sm:col-span-1">
+          <span class="text-sm font-medium text-zinc-700">Horas/mes (opcional)</span>
+          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="hoursPerMonth" inputmode="decimal" placeholder="Para cuadre mensual" />
         </label>
         <label class="block sm:col-span-1">
           <span class="text-sm font-medium text-zinc-700">Inicio</span>
@@ -110,7 +140,9 @@ const today = toYmd(new Date());
           <span class="text-sm font-medium text-zinc-700">Fin (opcional)</span>
           <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" type="date" name="endDate" />
         </label>
-        <button class="sm:col-span-3 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">Añadir contrato</button>
+        <button class="sm:col-span-2 lg:col-span-4 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">
+          Añadir contrato
+        </button>
       </form>
 
       <div class="mt-6 overflow-x-auto">
@@ -118,6 +150,7 @@ const today = toYmd(new Date());
           <thead class="text-xs uppercase text-zinc-500">
             <tr>
               <th class="px-3 py-2">Horas/semana</th>
+              <th class="px-3 py-2">Horas/mes</th>
               <th class="px-3 py-2">Inicio</th>
               <th class="px-3 py-2">Fin</th>
             </tr>
@@ -126,12 +159,65 @@ const today = toYmd(new Date());
             {contracts.results.map((c: ContractRow) => (
               <tr>
                 <td class="px-3 py-2">{c.hours_per_week}</td>
+                <td class="px-3 py-2">{c.hours_per_month ?? '—'}</td>
                 <td class="px-3 py-2">{c.start_date}</td>
                 <td class="px-3 py-2">{c.end_date ?? '—'}</td>
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm lg:col-span-2">
+      <h2 class="text-sm font-semibold">Cuadre trabajadora (mes natural)</h2>
+      <p class="mt-1 text-xs text-zinc-600">
+        Suma horas planificadas en <code class="rounded bg-zinc-100 px-1">assignments</code> asignados a esta trabajadora (no cancelados) y las compara con
+        <strong>horas/mes</strong> del contrato vigente en ese mes.
+      </p>
+
+      <form method="get" class="mt-4 flex flex-wrap items-end gap-3">
+        <label class="block">
+          <span class="text-sm font-medium text-zinc-700">Año</span>
+          <input class="mt-1 w-28 rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="year" type="number" value={safeWYear} />
+        </label>
+        <label class="block">
+          <span class="text-sm font-medium text-zinc-700">Mes</span>
+          <input class="mt-1 w-24 rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="month" type="number" min="1" max="12" value={safeWMonth} />
+        </label>
+        <button class="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">Calcular</button>
+      </form>
+
+      <div class="mt-4 grid gap-4 md:grid-cols-2">
+        <div class="rounded-xl border border-zinc-200 p-4">
+          <div class="text-sm font-semibold">Horas asignadas (planificado)</div>
+          <div class="mt-2 text-2xl font-semibold">{formatHours(assignedHours)}</div>
+          <div class="mt-1 text-xs text-zinc-600">({assignedHours.toFixed(2)} h)</div>
+        </div>
+        <div class="rounded-xl border border-zinc-200 p-4">
+          <div class="text-sm font-semibold">Contrato en el mes</div>
+          {contractForMonth ? (
+            <div class="mt-2 text-sm text-zinc-700">
+              <div>Semanal: {contractForMonth.hours_per_week} h/semana</div>
+              <div class="mt-1">Mensual: {contractForMonth.hours_per_month !== null ? `${contractForMonth.hours_per_month} h` : '— (añade horas/mes al contrato)'}</div>
+            </div>
+          ) : (
+            <div class="mt-2 text-sm text-zinc-600">Sin contrato que cubra este mes.</div>
+          )}
+          {deltaWorker !== null ? (
+            <div
+              class={`mt-3 text-sm font-medium ${deltaWorker > 0.02 ? 'text-amber-700' : deltaWorker < -0.02 ? 'text-blue-700' : 'text-emerald-700'}`}
+            >
+              {deltaWorker > 0.02
+                ? `Sobran ~${Math.abs(deltaWorker).toFixed(2)} h respecto al tope mensual`
+                : deltaWorker < -0.02
+                  ? `Faltan ~${Math.abs(deltaWorker).toFixed(2)} h para llegar al tope mensual`
+                  : 'Cuadra con el tope mensual (aprox.)'}
+            </div>
+          ) : (
+            <div class="mt-3 text-xs text-zinc-500">Define horas/mes en el contrato para ver la diferencia.</div>
+          )}
+        </div>
       </div>
     </section>
   </div>

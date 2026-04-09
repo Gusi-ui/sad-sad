@@ -2,6 +2,7 @@
 import AppLayout from '../../../layouts/AppLayout.astro';
 import { db } from '../../../lib/db';
 import { randomId } from '../../../lib/crypto';
+import { computeUserMonthBreakdown, formatHours, minutesToHours } from '../../../lib/month-hours';
 
 export const prerender = false;
 
@@ -18,11 +19,16 @@ if (Astro.request.method === 'POST') {
     const address = String(formData.get('address') ?? '').trim();
     const notes = String(formData.get('notes') ?? '').trim();
     const active = formData.get('active') === 'on' ? 1 : 0;
+    const quotaRaw = String(formData.get('monthlyHoursQuota') ?? '').trim();
+    const quotaParsed = quotaRaw === '' ? null : Number(quotaRaw);
+    const quotaDb = quotaParsed === null || !Number.isFinite(quotaParsed) ? null : quotaParsed;
 
     if (name) {
       await database
-        .prepare(`UPDATE service_users SET name = ?, address = ?, notes = ?, active = ? WHERE id = ?`)
-        .bind(name, address || null, notes || null, active, userId)
+        .prepare(
+          `UPDATE service_users SET name = ?, address = ?, notes = ?, active = ?, monthly_hours_quota = ? WHERE id = ?`
+        )
+        .bind(name, address || null, notes || null, active, quotaDb, userId)
         .run();
     }
     return Astro.redirect(`/admin/users/${userId}`);
@@ -52,9 +58,16 @@ if (Astro.request.method === 'POST') {
 }
 
 const user = await db()
-  .prepare(`SELECT id, name, address, notes, active FROM service_users WHERE id = ? LIMIT 1`)
+  .prepare(`SELECT id, name, address, notes, active, monthly_hours_quota FROM service_users WHERE id = ? LIMIT 1`)
   .bind(userId)
-  .first<{ id: string; name: string; address: string | null; notes: string | null; active: number }>();
+  .first<{
+    id: string;
+    name: string;
+    address: string | null;
+    notes: string | null;
+    active: number;
+    monthly_hours_quota: number | null;
+  }>();
 
 if (!user) return Astro.redirect('/admin/users');
 
@@ -75,6 +88,20 @@ const weekdayLabel = (weekday: number | null) => {
   const labels = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
   return labels[weekday] ?? String(weekday);
 };
+
+const now = new Date();
+const reportYear = Number(Astro.url.searchParams.get('year') ?? now.getFullYear());
+const reportMonth = Number(Astro.url.searchParams.get('month') ?? now.getMonth() + 1);
+const safeYear = Number.isFinite(reportYear) ? reportYear : now.getFullYear();
+const safeMonth =
+  Number.isFinite(reportMonth) && reportMonth >= 1 && reportMonth <= 12 ? reportMonth : now.getMonth() + 1;
+
+const monthBreakdown = await computeUserMonthBreakdown(db(), userId, safeYear, safeMonth);
+const hoursFromTemplates = minutesToHours(monthBreakdown.plannedMinutesFromTemplates);
+const hoursFromAssignments = minutesToHours(monthBreakdown.plannedMinutesFromAssignments);
+const quota = user.monthly_hours_quota;
+const deltaTemplates = quota !== null && quota !== undefined ? hoursFromTemplates - quota : null;
+const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssignments - quota : null;
 ---
 
 <AppLayout title={`${user.name} | Admin`}>
@@ -104,6 +131,16 @@ const weekdayLabel = (weekday: number | null) => {
         <label class="flex items-center gap-2">
           <input class="h-4 w-4" type="checkbox" name="active" checked={user.active === 1} />
           <span class="text-sm text-zinc-700">Activo</span>
+        </label>
+        <label class="block">
+          <span class="text-sm font-medium text-zinc-700">Horas mensuales aprobadas (ayuntamiento)</span>
+          <input
+            class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+            name="monthlyHoursQuota"
+            inputmode="decimal"
+            placeholder="Ej. 86"
+            value={user.monthly_hours_quota ?? ''}
+          />
         </label>
         <button class="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">Guardar</button>
       </form>
@@ -173,6 +210,86 @@ const weekdayLabel = (weekday: number | null) => {
           </tbody>
         </table>
       </div>
+    </section>
+
+    <section class="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm lg:col-span-2">
+      <h2 class="text-sm font-semibold">Cuadre de horas (mes natural)</h2>
+      <p class="mt-1 text-xs text-zinc-600">
+        Calcula horas según plantillas (igual que la generación de agenda) y compara con la cuota aprobada. También muestra horas en
+        <code class="rounded bg-zinc-100 px-1">assignments</code> del mes.
+      </p>
+
+      <form method="get" class="mt-4 flex flex-wrap items-end gap-3">
+        <label class="block">
+          <span class="text-sm font-medium text-zinc-700">Año</span>
+          <input class="mt-1 w-28 rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="year" type="number" value={safeYear} />
+        </label>
+        <label class="block">
+          <span class="text-sm font-medium text-zinc-700">Mes</span>
+          <input class="mt-1 w-24 rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="month" type="number" min="1" max="12" value={safeMonth} />
+        </label>
+        <button class="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">Calcular</button>
+      </form>
+
+      <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="rounded-xl border border-zinc-100 bg-zinc-50 p-3">
+          <div class="text-xs text-zinc-500">Días laborables</div>
+          <div class="text-lg font-semibold">{monthBreakdown.daysLaborable}</div>
+        </div>
+        <div class="rounded-xl border border-zinc-100 bg-zinc-50 p-3">
+          <div class="text-xs text-zinc-500">Días festivo (calendario)</div>
+          <div class="text-lg font-semibold">{monthBreakdown.daysFestivo}</div>
+        </div>
+        <div class="rounded-xl border border-zinc-100 bg-zinc-50 p-3">
+          <div class="text-xs text-zinc-500">Días fin de semana</div>
+          <div class="text-lg font-semibold">{monthBreakdown.daysFinSemana}</div>
+        </div>
+        <div class="rounded-xl border border-zinc-100 bg-zinc-50 p-3">
+          <div class="text-xs text-zinc-500">Cuota aprobada</div>
+          <div class="text-lg font-semibold">{quota !== null && quota !== undefined ? `${quota} h` : '—'}</div>
+        </div>
+      </div>
+
+      <div class="mt-4 grid gap-4 md:grid-cols-2">
+        <div class="rounded-xl border border-zinc-200 p-4">
+          <div class="text-sm font-semibold">Según plantillas</div>
+          <div class="mt-2 text-2xl font-semibold">{formatHours(hoursFromTemplates)}</div>
+          <div class="mt-1 text-xs text-zinc-600">({hoursFromTemplates.toFixed(2)} h decimales)</div>
+          {deltaTemplates !== null ? (
+            <div class={`mt-2 text-sm font-medium ${deltaTemplates > 0.02 ? 'text-amber-700' : deltaTemplates < -0.02 ? 'text-blue-700' : 'text-emerald-700'}`}>
+              {deltaTemplates > 0.02
+                ? `Sobran ~${Math.abs(deltaTemplates).toFixed(2)} h respecto a la cuota`
+                : deltaTemplates < -0.02
+                  ? `Faltan ~${Math.abs(deltaTemplates).toFixed(2)} h respecto a la cuota`
+                  : 'Cuadra con la cuota (aprox.)'}
+            </div>
+          ) : (
+            <div class="mt-2 text-xs text-zinc-500">Indica cuota en “Horas mensuales aprobadas” para ver diferencia.</div>
+          )}
+        </div>
+        <div class="rounded-xl border border-zinc-200 p-4">
+          <div class="text-sm font-semibold">Según assignments del mes</div>
+          <div class="mt-2 text-2xl font-semibold">{formatHours(hoursFromAssignments)}</div>
+          <div class="mt-1 text-xs text-zinc-600">({hoursFromAssignments.toFixed(2)} h decimales)</div>
+          {deltaAssignments !== null ? (
+            <div class={`mt-2 text-sm font-medium ${deltaAssignments > 0.02 ? 'text-amber-700' : deltaAssignments < -0.02 ? 'text-blue-700' : 'text-emerald-700'}`}>
+              {deltaAssignments > 0.02
+                ? `Sobran ~${Math.abs(deltaAssignments).toFixed(2)} h respecto a la cuota`
+                : deltaAssignments < -0.02
+                  ? `Faltan ~${Math.abs(deltaAssignments).toFixed(2)} h respecto a la cuota`
+                  : 'Cuadra con la cuota (aprox.)'}
+            </div>
+          ) : (
+            <div class="mt-2 text-xs text-zinc-500">Indica cuota para comparar.</div>
+          )}
+        </div>
+      </div>
+
+      <p class="mt-4 text-xs text-zinc-500">
+        <strong>Ej. usuario “todos los días”:</strong> plantillas <code class="rounded bg-zinc-100 px-1">laborable</code> sin día (o L–V
+        repetido) para mañana y tarde; plantillas <code class="rounded bg-zinc-100 px-1">festivo</code> sin día para mañana en festivo/finde.
+        <strong>Ej. L–M–X:</strong> tres plantillas <code class="rounded bg-zinc-100 px-1">laborable</code> con weekday 1, 3 y 5.
+      </p>
     </section>
   </div>
 </AppLayout>
