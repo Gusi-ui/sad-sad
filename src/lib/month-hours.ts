@@ -31,10 +31,41 @@ export const slotDurationMinutes = (start: string, end: string) => {
   return Math.max(0, b - a);
 };
 
+/** Festivo oficial cuenta como festivo aunque sea sábado o domingo (no como fin de semana “normal”). */
 export const classifyDay = (dateYmd: string, weekday0to6: number, holidayDates: Set<string>): DayKind => {
   if (holidayDates.has(dateYmd)) return 'festivo';
   if (weekday0to6 === 0 || weekday0to6 === 6) return 'fin_semana';
   return 'laborable';
+};
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/** Clave de semana ISO (YYYY-Www) en UTC para un día del calendario gregoriano. */
+export const isoWeekKeyUtc = (year: number, monthIndex0: number, day: number) => {
+  const tmp = new Date(Date.UTC(year, monthIndex0, day));
+  tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((tmp.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return `${tmp.getUTCFullYear()}-W${pad2(weekNo)}`;
+};
+
+/** Número de semanas ISO distintas que toca el mes natural (suele ser 4–6). Sirve para intensidad media semanal. */
+export const countIsoWeeksInNaturalMonth = (year: number, month: number) => {
+  const monthEnd = new Date(Date.UTC(year, month, 0));
+  const keys = new Set<string>();
+  for (let day = 1; day <= monthEnd.getUTCDate(); day += 1) {
+    keys.add(isoWeekKeyUtc(year, month - 1, day));
+  }
+  return keys.size;
+};
+
+export type WorkerMonthAssignmentStats = {
+  assignedMinutes: number;
+  /** Días del mes con al menos un assignment no cancelado. */
+  distinctServiceDays: number;
+  isoWeeksInMonth: number;
+  /** Horas del mes / semanas ISO del mes (aprox. “ritmo semanal” en ese mes). */
+  avgWeeklyAssignedHours: number;
 };
 
 export const templatesApplicableForDay = (templates: ServiceTemplateRow[], kind: DayKind, weekday0to6: number) =>
@@ -143,7 +174,12 @@ export const computeUserMonthBreakdown = async (
   };
 };
 
-export const computeWorkerMonthAssignedMinutes = async (db: D1Like, workerId: string, year: number, month: number) => {
+export const computeWorkerMonthAssignmentStats = async (
+  db: D1Like,
+  workerId: string,
+  year: number,
+  month: number
+): Promise<WorkerMonthAssignmentStats> => {
   const monthStart = new Date(Date.UTC(year, month - 1, 1));
   const monthEnd = new Date(Date.UTC(year, month, 0));
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -153,17 +189,34 @@ export const computeWorkerMonthAssignedMinutes = async (db: D1Like, workerId: st
 
   const rows = await db
     .prepare(
-      `SELECT planned_start, planned_end FROM assignments
+      `SELECT date, planned_start, planned_end FROM assignments
        WHERE assigned_worker_id = ? AND date >= ? AND date <= ? AND status != 'cancelled'`
     )
     .bind(workerId, startYmd, endYmd)
-    .all<{ planned_start: string; planned_end: string }>();
+    .all<{ date: string; planned_start: string; planned_end: string }>();
 
+  const distinctDates = new Set<string>();
   let minutes = 0;
   for (const a of rows.results) {
+    distinctDates.add(a.date);
     minutes += slotDurationMinutes(a.planned_start, a.planned_end);
   }
-  return minutes;
+
+  const isoWeeksInMonth = countIsoWeeksInNaturalMonth(year, month);
+  const assignedHours = minutes / 60;
+  const avgWeeklyAssignedHours = isoWeeksInMonth > 0 ? assignedHours / isoWeeksInMonth : 0;
+
+  return {
+    assignedMinutes: minutes,
+    distinctServiceDays: distinctDates.size,
+    isoWeeksInMonth,
+    avgWeeklyAssignedHours
+  };
+};
+
+export const computeWorkerMonthAssignedMinutes = async (db: D1Like, workerId: string, year: number, month: number) => {
+  const stats = await computeWorkerMonthAssignmentStats(db, workerId, year, month);
+  return stats.assignedMinutes;
 };
 
 export const minutesToHours = (minutes: number) => minutes / 60;

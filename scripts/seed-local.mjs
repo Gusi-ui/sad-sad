@@ -55,10 +55,12 @@ VALUES
   ('${workerAccountId}', '${workerEmail}', '${worker.hashBase64}', '${worker.saltBase64}', ${worker.iterations}, 'WORKER', '${workerId}', 1);
 `;
 
-  execFileSync('npx', ['wrangler', 'd1', 'execute', 'DB', '--local', '--yes', '--command', sql], { stdio: 'inherit' });
+  const useRemote = process.env.D1_REMOTE === '1' || process.env.D1_REMOTE === 'true';
+  const targetFlag = useRemote ? '--remote' : '--local';
+  execFileSync('npx', ['wrangler', 'd1', 'execute', 'DB', targetFlag, '--yes', '--command', sql], { stdio: 'inherit' });
 
   // eslint-disable-next-line no-console
-  console.log('\nSeed completado (local):');
+  console.log(`\nSeed completado (${useRemote ? 'D1 remota / producción' : 'local'}):`);
   // eslint-disable-next-line no-console
   console.log(`- ADMIN  ${adminEmail} / ${adminPassword}`);
   // eslint-disable-next-line no-console

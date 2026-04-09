@@ -4,7 +4,7 @@ import { db } from '../../../lib/db';
 import { randomId } from '../../../lib/crypto';
 import { toYmd } from '../../../lib/dates';
 import {
-  computeWorkerMonthAssignedMinutes,
+  computeWorkerMonthAssignmentStats,
   formatHours,
   minutesToHours,
   pickContractForMonth
@@ -76,11 +76,14 @@ const wMonth = Number(Astro.url.searchParams.get('month') ?? now.getMonth() + 1)
 const safeWYear = Number.isFinite(wYear) ? wYear : now.getFullYear();
 const safeWMonth = Number.isFinite(wMonth) && wMonth >= 1 && wMonth <= 12 ? wMonth : now.getMonth() + 1;
 
-const assignedMinutes = await computeWorkerMonthAssignedMinutes(db(), workerId, safeWYear, safeWMonth);
-const assignedHours = minutesToHours(assignedMinutes);
+const workerMonthStats = await computeWorkerMonthAssignmentStats(db(), workerId, safeWYear, safeWMonth);
+const assignedHours = minutesToHours(workerMonthStats.assignedMinutes);
 const contractForMonth = pickContractForMonth(contracts.results, safeWYear, safeWMonth);
 const monthlyCap = contractForMonth?.hours_per_month ?? null;
 const deltaWorker = monthlyCap !== null ? assignedHours - monthlyCap : null;
+const weeklyContract = contractForMonth?.hours_per_week ?? null;
+const deltaAvgVsWeekly =
+  weeklyContract !== null ? workerMonthStats.avgWeeklyAssignedHours - weeklyContract : null;
 ---
 
 <AppLayout title={`${worker.name} | Admin`}>
@@ -172,8 +175,9 @@ const deltaWorker = monthlyCap !== null ? assignedHours - monthlyCap : null;
     <section class="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm lg:col-span-2">
       <h2 class="text-sm font-semibold">Cuadre trabajadora (mes natural)</h2>
       <p class="mt-1 text-xs text-zinc-600">
-        Suma horas planificadas en <code class="rounded bg-zinc-100 px-1">assignments</code> asignados a esta trabajadora (no cancelados) y las compara con
-        <strong>horas/mes</strong> del contrato vigente en ese mes.
+        Suma horas en <code class="rounded bg-zinc-100 px-1">assignments</code> (no cancelados), cuenta <strong>días con al menos un servicio</strong> y calcula una
+        <strong>media semanal del mes</strong> dividiendo las horas entre las semanas ISO que toca el mes (suele ser 4–5; a veces 6). El contrato habitual es en
+        h/semana: así se ve si el mes ha quedado por encima o por debajo del ritmo contractual. Opcionalmente compara con <strong>horas/mes</strong> si están en el contrato.
       </p>
 
       <form method="get" class="mt-4 flex flex-wrap items-end gap-3">
@@ -188,35 +192,72 @@ const deltaWorker = monthlyCap !== null ? assignedHours - monthlyCap : null;
         <button class="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">Calcular</button>
       </form>
 
-      <div class="mt-4 grid gap-4 md:grid-cols-2">
+      <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div class="rounded-xl border border-zinc-200 p-4">
-          <div class="text-sm font-semibold">Horas asignadas (planificado)</div>
-          <div class="mt-2 text-2xl font-semibold">{formatHours(assignedHours)}</div>
-          <div class="mt-1 text-xs text-zinc-600">({assignedHours.toFixed(2)} h)</div>
+          <div class="text-xs text-zinc-500">Horas del mes (assignments)</div>
+          <div class="mt-1 text-xl font-semibold">{formatHours(assignedHours)}</div>
+          <div class="mt-0.5 text-xs text-zinc-600">{assignedHours.toFixed(2)} h</div>
         </div>
         <div class="rounded-xl border border-zinc-200 p-4">
-          <div class="text-sm font-semibold">Contrato en el mes</div>
+          <div class="text-xs text-zinc-500">Días con servicio</div>
+          <div class="mt-1 text-xl font-semibold">{workerMonthStats.distinctServiceDays}</div>
+          <div class="mt-0.5 text-xs text-zinc-600">Días distintos con al menos un turno</div>
+        </div>
+        <div class="rounded-xl border border-zinc-200 p-4">
+          <div class="text-xs text-zinc-500">Semanas ISO en el mes</div>
+          <div class="mt-1 text-xl font-semibold">{workerMonthStats.isoWeeksInMonth}</div>
+          <div class="mt-0.5 text-xs text-zinc-600">Para media semanal del mes</div>
+        </div>
+        <div class="rounded-xl border border-zinc-200 p-4">
+          <div class="text-xs text-zinc-500">Media semanal (este mes)</div>
+          <div class="mt-1 text-xl font-semibold">{formatHours(workerMonthStats.avgWeeklyAssignedHours)}</div>
+          <div class="mt-0.5 text-xs text-zinc-600">{workerMonthStats.avgWeeklyAssignedHours.toFixed(2)} h / semana ISO</div>
+        </div>
+      </div>
+
+      <div class="mt-4 grid gap-4 md:grid-cols-2">
+        <div class="rounded-xl border border-zinc-200 p-4">
+          <div class="text-sm font-semibold">Contrato vigente en el mes</div>
           {contractForMonth ? (
             <div class="mt-2 text-sm text-zinc-700">
               <div>Semanal: {contractForMonth.hours_per_week} h/semana</div>
-              <div class="mt-1">Mensual: {contractForMonth.hours_per_month !== null ? `${contractForMonth.hours_per_month} h` : '— (añade horas/mes al contrato)'}</div>
+              <div class="mt-1">Mensual: {contractForMonth.hours_per_month !== null ? `${contractForMonth.hours_per_month} h` : '— (opcional en contrato)'}</div>
             </div>
           ) : (
             <div class="mt-2 text-sm text-zinc-600">Sin contrato que cubra este mes.</div>
           )}
-          {deltaWorker !== null ? (
+          {deltaAvgVsWeekly !== null ? (
             <div
-              class={`mt-3 text-sm font-medium ${deltaWorker > 0.02 ? 'text-amber-700' : deltaWorker < -0.02 ? 'text-blue-700' : 'text-emerald-700'}`}
+              class={`mt-3 text-sm font-medium ${deltaAvgVsWeekly > 0.02 ? 'text-amber-700' : deltaAvgVsWeekly < -0.02 ? 'text-blue-700' : 'text-emerald-700'}`}
             >
-              {deltaWorker > 0.02
-                ? `Sobran ~${Math.abs(deltaWorker).toFixed(2)} h respecto al tope mensual`
-                : deltaWorker < -0.02
-                  ? `Faltan ~${Math.abs(deltaWorker).toFixed(2)} h para llegar al tope mensual`
-                  : 'Cuadra con el tope mensual (aprox.)'}
+              {deltaAvgVsWeekly > 0.02
+                ? `La media del mes (~${workerMonthStats.avgWeeklyAssignedHours.toFixed(2)} h/sem.) supera el contrato (${weeklyContract} h/sem.) en ~${Math.abs(deltaAvgVsWeekly).toFixed(2)} h`
+                : deltaAvgVsWeekly < -0.02
+                  ? `La media del mes queda ~${Math.abs(deltaAvgVsWeekly).toFixed(2)} h/sem. por debajo del contrato (${weeklyContract} h/sem.)`
+                  : 'La media semanal del mes cuadra con el contrato (aprox.)'}
             </div>
           ) : (
-            <div class="mt-3 text-xs text-zinc-500">Define horas/mes en el contrato para ver la diferencia.</div>
+            <div class="mt-3 text-xs text-zinc-500">Añade un contrato con h/semana para comparar con la media del mes.</div>
           )}
+          {deltaWorker !== null ? (
+            <div
+              class={`mt-3 border-t border-zinc-100 pt-3 text-sm font-medium ${deltaWorker > 0.02 ? 'text-amber-700' : deltaWorker < -0.02 ? 'text-blue-700' : 'text-emerald-700'}`}
+            >
+              {deltaWorker > 0.02
+                ? `Horas del mes: sobran ~${Math.abs(deltaWorker).toFixed(2)} h respecto al tope mensual del contrato`
+                : deltaWorker < -0.02
+                  ? `Horas del mes: faltan ~${Math.abs(deltaWorker).toFixed(2)} h para el tope mensual del contrato`
+                  : 'Horas del mes: cuadra con el tope mensual (aprox.)'}
+            </div>
+          ) : (
+            <div class="mt-3 border-t border-zinc-100 pt-3 text-xs text-zinc-500">Opcional: define horas/mes en el contrato para cuadre mensual explícito.</div>
+          )}
+        </div>
+        <div class="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
+          <p>
+            Los meses no tienen siempre “las mismas semanas”: por eso las horas del mes se comparan con el contrato semanal usando{' '}
+            <strong>horas ÷ semanas ISO del mes</strong>. Si además guardas <strong>horas/mes</strong> en el contrato, aparece el segundo cuadre (tope mensual).
+          </p>
         </div>
       </div>
     </section>
