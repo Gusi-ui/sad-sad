@@ -28,7 +28,7 @@ const assignments = await db()
 type AssignmentRow = (typeof assignments.results)[number];
 ---
 
-<WorkerLayout title={`Día ${dateYmd} | SAD`} activeTab="week">
+<WorkerLayout title={`Día ${dateYmd} | SAD`}>
   <header>
     <a class="text-sm font-medium text-zinc-700 underline decoration-zinc-300" href="/w/week">← Volver</a>
     <h1 class="mt-2 text-2xl font-semibold tracking-tight">{dateYmd}</h1>

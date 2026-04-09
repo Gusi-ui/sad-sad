@@ -1,0 +1,86 @@
+---
+import WorkerLayout from '../../layouts/WorkerLayout.astro';
+import { db } from '../../lib/db';
+import { toYmd } from '../../lib/dates';
+
+export const prerender = false;
+
+const account = Astro.locals.account;
+const workerId = account?.workerId ?? null;
+if (!workerId) return Astro.redirect('/unauthorized');
+
+const now = new Date();
+const year = Number(Astro.url.searchParams.get('year') ?? now.getFullYear());
+const month = Number(Astro.url.searchParams.get('month') ?? now.getMonth() + 1); // 1..12
+const safeYear = Number.isFinite(year) ? year : now.getFullYear();
+const safeMonth = Number.isFinite(month) && month >= 1 && month <= 12 ? month : now.getMonth() + 1;
+
+const monthStart = new Date(Date.UTC(safeYear, safeMonth - 1, 1));
+const monthEnd = new Date(Date.UTC(safeYear, safeMonth, 0)); // last day
+
+const startYmd = toYmd(new Date(monthStart));
+const endYmd = toYmd(new Date(monthEnd));
+
+const rows = await db()
+  .prepare(
+    `SELECT a.date, COUNT(*) as c
+     FROM assignments a
+     WHERE a.assigned_worker_id = ?
+       AND a.status = 'planned'
+       AND a.date >= ? AND a.date <= ?
+     GROUP BY a.date`
+  )
+  .bind(workerId, startYmd, endYmd)
+  .all<{ date: string; c: number }>();
+
+const countsByDate = new Map(rows.results.map((r) => [r.date, r.c]));
+
+const daysInMonth = monthEnd.getUTCDate();
+const firstWeekday = monthStart.getUTCDay(); // 0=Dom..6=Sáb
+const grid: Array<{ ymd: string | null; day: number | null; count: number }> = [];
+
+for (let i = 0; i < firstWeekday; i += 1) grid.push({ ymd: null, day: null, count: 0 });
+for (let day = 1; day <= daysInMonth; day += 1) {
+  const d = new Date(Date.UTC(safeYear, safeMonth - 1, day));
+  const ymd = toYmd(new Date(d));
+  grid.push({ ymd, day, count: countsByDate.get(ymd) ?? 0 });
+}
+while (grid.length % 7 !== 0) grid.push({ ymd: null, day: null, count: 0 });
+
+const monthLabel = new Date(Date.UTC(safeYear, safeMonth - 1, 1)).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+---
+
+<WorkerLayout title="Mensual | SAD">
+  <header>
+    <a class="text-sm font-medium text-zinc-700 underline decoration-zinc-300" href="/w/planning">← Volver</a>
+    <h1 class="mt-2 text-2xl font-semibold tracking-tight">Mensual</h1>
+    <p class="mt-1 text-sm text-zinc-600">{monthLabel}</p>
+  </header>
+
+  <div class="mt-4 grid grid-cols-7 gap-2 text-center text-xs text-zinc-500">
+    <div>Dom</div><div>Lun</div><div>Mar</div><div>Mié</div><div>Jue</div><div>Vie</div><div>Sáb</div>
+  </div>
+
+  <div class="mt-2 grid grid-cols-7 gap-2">
+    {grid.map((cell) =>
+      cell.ymd ? (
+        <a
+          class={`flex aspect-square flex-col rounded-xl border p-2 shadow-sm ${
+            cell.count > 0 ? 'border-zinc-300 bg-white' : 'border-zinc-200 bg-white/60'
+          }`}
+          href={`/w/day/${cell.ymd}`}
+        >
+          <div class="text-sm font-semibold text-zinc-900">{cell.day}</div>
+          {cell.count > 0 ? (
+            <div class="mt-auto text-[11px] font-medium text-zinc-700">{cell.count} serv.</div>
+          ) : (
+            <div class="mt-auto text-[11px] text-zinc-400">—</div>
+          )}
+        </a>
+      ) : (
+        <div class="aspect-square rounded-xl border border-transparent"></div>
+      )
+    )}
+  </div>
+</WorkerLayout>
+

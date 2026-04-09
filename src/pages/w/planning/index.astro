@@ -1,0 +1,29 @@
+---
+import WorkerLayout from '../../../layouts/WorkerLayout.astro';
+
+export const prerender = false;
+---
+
+<WorkerLayout title="Planificación | SAD">
+  <header>
+    <a class="text-sm font-medium text-zinc-700 underline decoration-zinc-300" href="/w">← Volver</a>
+    <h1 class="mt-2 text-2xl font-semibold tracking-tight">Planificación</h1>
+    <p class="mt-1 text-sm text-zinc-600">Elige vista</p>
+  </header>
+
+  <div class="mt-6 space-y-4">
+    <a class="block rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm hover:border-zinc-300" href="/w/today">
+      <div class="text-base font-semibold">Diaria</div>
+      <div class="mt-1 text-sm text-zinc-600">Servicios del día</div>
+    </a>
+    <a class="block rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm hover:border-zinc-300" href="/w/week">
+      <div class="text-base font-semibold">Semanal</div>
+      <div class="mt-1 text-sm text-zinc-600">Servicios de la semana</div>
+    </a>
+    <a class="block rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm hover:border-zinc-300" href="/w/month">
+      <div class="text-base font-semibold">Mensual</div>
+      <div class="mt-1 text-sm text-zinc-600">Calendario del mes</div>
+    </a>
+  </div>
+</WorkerLayout>
+

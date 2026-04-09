@@ -11,6 +11,6 @@ export const POST: APIRoute = async (context) => {
     return context.redirect('/login?error=1');
   }
 
-  return context.redirect(result.account.role === 'ADMIN' ? '/admin' : '/w/today');
+  return context.redirect(result.account.role === 'ADMIN' ? '/admin' : '/w');
 };
 
