@@ -16,7 +16,8 @@ export const randomId = () => crypto.randomUUID();
 
 export const hashPassword = async (password: string) => {
   const saltBytes = crypto.getRandomValues(new Uint8Array(16));
-  const iterations = 210_000;
+  // Limit to 100_000 iterations to be fully compatible with Cloudflare Workers limits
+  const iterations = 100_000;
 
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
