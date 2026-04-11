@@ -18,10 +18,8 @@ const safeMonthKey = `${safeYear}-${String(safeMonth).padStart(2, '0')}`;
 
 const selectedUserIdRaw = String(Astro.url.searchParams.get('userId') ?? '').trim();
 const selectedWorkerIdRaw = String(Astro.url.searchParams.get('workerId') ?? '').trim();
-const onlyFestiveRaw = String(Astro.url.searchParams.get('onlyFestive') ?? '').trim();
 const selectedUserId = selectedUserIdRaw === '' ? null : selectedUserIdRaw;
 const selectedWorkerId = selectedWorkerIdRaw === '' ? null : selectedWorkerIdRaw;
-const onlyFestive = onlyFestiveRaw === '1';
 const selectedDayRaw = String(Astro.url.searchParams.get('day') ?? '').trim();
 const selectedDay = selectedDayRaw === '' ? null : selectedDayRaw;
 
@@ -62,7 +60,7 @@ const allAssignments = await database
   }>();
 
 const query = `
-  SELECT a.id, a.date, a.kind, a.planned_start, a.planned_end,
+  SELECT a.id, a.date, a.kind, a.template_id, a.planned_start, a.planned_end,
          su.id as user_id, su.name as user_name,
          w.id as worker_id, w.name as worker_name
   FROM assignments a
@@ -71,17 +69,17 @@ const query = `
   WHERE a.date >= ? AND a.date <= ?
     AND (? IS NULL OR su.id = ?)
     AND (? IS NULL OR w.id = ?)
-    AND (? = 0 OR a.kind IN ('festivo','fin_semana'))
     AND a.status != 'cancelled'
   ORDER BY a.date ASC, a.planned_start ASC, su.name ASC
 `;
 const assignments = await database
   .prepare(query)
-  .bind(startYmd, endYmd, selectedUserId, selectedUserId, selectedWorkerId, selectedWorkerId, onlyFestive ? 1 : 0)
+  .bind(startYmd, endYmd, selectedUserId, selectedUserId, selectedWorkerId, selectedWorkerId)
   .all<{
     id: string;
     date: string;
     kind: string;
+    template_id: string | null;
     planned_start: string;
     planned_end: string;
     user_id: string;
@@ -110,6 +108,77 @@ const holidayRows = await database
   .all<{ date: string }>();
 const holidaySet = new Set(holidayRows.results.map((r) => r.date));
 
+const templates = await database
+  .prepare(
+    `SELECT t.id, t.service_user_id, t.kind, t.weekday, t.start_time, t.end_time,
+            su.name as user_name, su.preferred_worker_id, su.preferred_weekend_worker_id
+     FROM service_templates t
+     JOIN service_users su ON su.id = t.service_user_id
+     WHERE (? IS NULL OR su.id = ?)
+     ORDER BY su.name ASC, t.start_time ASC`
+  )
+  .bind(selectedUserId, selectedUserId)
+  .all<{
+    id: string;
+    service_user_id: string;
+    kind: 'laborable' | 'festivo';
+    weekday: number | null;
+    start_time: string;
+    end_time: string;
+    user_name: string;
+    preferred_worker_id: string | null;
+    preferred_weekend_worker_id: string | null;
+  }>();
+
+const workersById = new Map(workers.results.map((w) => [w.id, w.name]));
+
+const assignmentWorkerVotes = await database
+  .prepare(
+    `SELECT template_id, assigned_worker_id, COUNT(*) AS c
+     FROM assignments
+     WHERE date >= ? AND date <= ?
+       AND template_id IS NOT NULL
+       AND assigned_worker_id IS NOT NULL
+       AND status != 'cancelled'
+     GROUP BY template_id, assigned_worker_id`
+  )
+  .bind(startYmd, endYmd)
+  .all<{ template_id: string; assigned_worker_id: string; c: number }>();
+
+const templateWorkerMap = new Map<string, { workerId: string; count: number }>();
+for (const v of assignmentWorkerVotes.results) {
+  const prev = templateWorkerMap.get(v.template_id);
+  if (!prev || v.c > prev.count) {
+    templateWorkerMap.set(v.template_id, { workerId: v.assigned_worker_id, count: v.c });
+  }
+}
+
+const dayKindOf = (ymd: string) => {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  const weekday = d.getUTCDay();
+  const isWeekend = weekday === 0 || weekday === 6;
+  if (holidaySet.has(ymd)) return 'festivo' as const;
+  if (isWeekend) return 'fin_semana' as const;
+  return 'laborable' as const;
+};
+
+const templateApplies = (
+  t: { kind: 'laborable' | 'festivo'; weekday: number | null },
+  ymd: string
+) => {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  const weekday = d.getUTCDay();
+  const dayKind = dayKindOf(ymd);
+  if (dayKind === 'laborable') {
+    if (t.kind !== 'laborable') return false;
+    if (t.weekday === null) return true;
+    return t.weekday === weekday;
+  }
+  if (t.kind !== 'festivo') return false;
+  if (t.weekday === null) return true;
+  return t.weekday === weekday;
+};
+
 const totalDays = monthEnd.getUTCDate();
 const mondayIndex = (monthStart.getUTCDay() + 6) % 7;
 const cells: Array<{ ymd: string | null; day: number | null }> = [];
@@ -120,7 +189,6 @@ for (let day = 1; day <= totalDays; day += 1) {
 }
 while (cells.length % 7 !== 0) cells.push({ ymd: null, day: null });
 
-const selectedItems = selectedDay ? byDate.get(selectedDay) ?? [] : [];
 const prevMonth = new Date(Date.UTC(safeYear, safeMonth - 2, 1));
 const nextMonth = new Date(Date.UTC(safeYear, safeMonth, 1));
 const prevMonthKey = `${prevMonth.getUTCFullYear()}-${String(prevMonth.getUTCMonth() + 1).padStart(2, '0')}`;
@@ -132,7 +200,6 @@ const buildQuery = (monthKey: string, dayKey?: string) => {
   p.set('month', monthKey);
   if (selectedUserId) p.set('userId', selectedUserId);
   if (selectedWorkerId) p.set('workerId', selectedWorkerId);
-  if (onlyFestive) p.set('onlyFestive', '1');
   if (dayKey) p.set('day', dayKey);
   return `/admin/schedule/month?${p.toString()}`;
 };
@@ -143,6 +210,71 @@ const clearFilterQuery = () => {
   if (selectedDay) p.set('day', selectedDay);
   return `/admin/schedule/month?${p.toString()}`;
 };
+
+const mergedByDate = new Map<string, Array<{
+  id: string;
+  date: string;
+  kind: string;
+  planned_start: string;
+  planned_end: string;
+  user_id: string;
+  user_name: string;
+  worker_id: string | null;
+  worker_name: string | null;
+  template_id: string | null;
+  source: 'assignment' | 'projection';
+}>>();
+
+for (let day = 1; day <= monthEnd.getUTCDate(); day += 1) {
+  const ymd = `${safeYear}-${String(safeMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  const dayAssignments = (assignments.results.filter((a) => a.date === ymd)).map((a) => ({ ...a, source: 'assignment' as const }));
+  const existingTemplateIds = new Set(dayAssignments.map((a) => a.template_id).filter(Boolean));
+  const projections: Array<{
+    id: string;
+    date: string;
+    kind: string;
+    planned_start: string;
+    planned_end: string;
+    user_id: string;
+    user_name: string;
+    worker_id: string | null;
+    worker_name: string | null;
+    template_id: string | null;
+    source: 'projection';
+  }> = [];
+
+  for (const t of templates.results) {
+    if (!templateApplies(t, ymd)) continue;
+    if (existingTemplateIds.has(t.id)) continue;
+    const voted = templateWorkerMap.get(t.id)?.workerId ?? null;
+    const fallbackPref = t.kind === 'laborable'
+      ? t.preferred_worker_id
+      : t.preferred_weekend_worker_id ?? t.preferred_worker_id;
+    const workerId = voted ?? fallbackPref ?? null;
+    if (selectedWorkerId && workerId !== selectedWorkerId) continue;
+    projections.push({
+      id: `projection:${t.id}:${ymd}`,
+      date: ymd,
+      kind: dayKindOf(ymd),
+      planned_start: t.start_time,
+      planned_end: t.end_time,
+      user_id: t.service_user_id,
+      user_name: t.user_name,
+      worker_id: workerId,
+      worker_name: workerId ? workersById.get(workerId) ?? null : null,
+      template_id: t.id,
+      source: 'projection',
+    });
+  }
+
+  const merged = [...dayAssignments, ...projections].sort((a, b) =>
+    a.planned_start.localeCompare(b.planned_start) || a.user_name.localeCompare(b.user_name)
+  );
+  mergedByDate.set(ymd, merged);
+}
+
+const selectedItems = selectedDay ? mergedByDate.get(selectedDay) ?? [] : [];
+const mergedMonthCount = Array.from(mergedByDate.values()).reduce((acc, arr) => acc + arr.length, 0);
 ---
 
 <AppLayout title="Agenda mensual | Admin">
@@ -161,7 +293,7 @@ const clearFilterQuery = () => {
     <a href="/admin/schedule/week" class="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50">Volver a semana</a>
   </div>
 
-  <form method="get" class="mt-6 grid gap-3 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm md:grid-cols-5">
+  <form method="get" class="mt-6 grid gap-3 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm md:grid-cols-4">
     <label class="block">
       <span class="text-sm font-medium text-zinc-700">Mes</span>
       <input type="month" name="month" value={safeMonthKey} class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" />
@@ -184,13 +316,9 @@ const clearFilterQuery = () => {
         ))}
       </select>
     </label>
-    <label class="flex items-end gap-2 pb-2">
-      <input type="checkbox" name="onlyFestive" value="1" checked={onlyFestive} class="h-4 w-4 rounded border-zinc-300 text-red-600 focus:ring-red-500" />
-      <span class="text-sm font-medium text-zinc-700">Solo festivos (incluye finde)</span>
-    </label>
     <div class="flex items-end gap-2">
       <button class="w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white">Aplicar</button>
-      <a href={clearFilterQuery()} class="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50 whitespace-nowrap">Limpiar</a>
+      <a href={clearFilterQuery()} class="rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100 whitespace-nowrap">Limpiar filtros</a>
     </div>
   </form>
 
@@ -201,10 +329,10 @@ const clearFilterQuery = () => {
   </div>
 
   <div class="mt-3 text-xs text-zinc-600">
-    Servicios del mes (totales): <span class="font-semibold text-zinc-800">{allAssignments.results.length}</span>
-    {selectedUserId || selectedWorkerId || onlyFestive ? (
+    Servicios del mes (totales): <span class="font-semibold text-zinc-800">{mergedMonthCount}</span>
+    {selectedUserId || selectedWorkerId ? (
       <>
-        {' '}· Filtrados: <span class="font-semibold text-zinc-800">{assignments.results.length}</span>
+        {' '}· Filtrados en vista: <span class="font-semibold text-zinc-800">{mergedMonthCount}</span>
       </>
     ) : null}
   </div>
@@ -216,7 +344,7 @@ const clearFilterQuery = () => {
     <div class="mt-2 grid grid-cols-7 gap-2">
       {cells.map((c) => {
         if (!c.ymd || !c.day) return <div class="min-h-[88px] rounded-lg bg-zinc-50" />;
-        const items = allByDate.get(c.ymd) ?? [];
+        const items = mergedByDate.get(c.ymd) ?? [];
         const isHoliday = holidaySet.has(c.ymd);
         const weekday = new Date(`${c.ymd}T00:00:00Z`).getUTCDay();
         const isWeekend = weekday === 0 || weekday === 6;
