@@ -23,6 +23,23 @@ const selectedWorkerId = selectedWorkerIdRaw === '' ? null : selectedWorkerIdRaw
 const selectedDayRaw = String(Astro.url.searchParams.get('day') ?? '').trim();
 const selectedDay = selectedDayRaw === '' ? null : selectedDayRaw;
 
+const toMinutes = (hhmm: string) => {
+  const [hRaw, mRaw] = hhmm.split(':');
+  const h = Number(hRaw);
+  const m = Number(mRaw);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return 0;
+  return h * 60 + m;
+};
+const minutesToHours = (m: number) => m / 60;
+const formatHours = (hours: number) => {
+  const sign = hours < 0 ? '-' : '';
+  const abs = Math.abs(hours);
+  const totalMinutes = Math.round(abs * 60);
+  const h = Math.floor(totalMinutes / 60);
+  const mm = totalMinutes % 60;
+  return `${sign}${h}h ${String(mm).padStart(2, '0')}m`;
+};
+
 const monthStart = new Date(Date.UTC(safeYear, safeMonth - 1, 1));
 const monthEnd = new Date(Date.UTC(safeYear, safeMonth, 0));
 const startYmd = toYmd(monthStart);
@@ -59,6 +76,57 @@ const allAssignments = await database
     worker_name: string | null;
   }>();
 
+const selectedUserInfo = selectedUserId
+  ? await database
+      .prepare(`SELECT id, name, monthly_hours_quota FROM service_users WHERE id = ? LIMIT 1`)
+      .bind(selectedUserId)
+      .first<{ id: string; name: string; monthly_hours_quota: number | null }>()
+  : null;
+
+const selectedWorkerInfo = selectedWorkerId
+  ? await database
+      .prepare(`SELECT id, name FROM workers WHERE id = ? LIMIT 1`)
+      .bind(selectedWorkerId)
+      .first<{ id: string; name: string }>()
+  : null;
+
+const selectedWorkerContract = selectedWorkerId
+  ? await database
+      .prepare(
+        `SELECT hours_per_week, hours_per_month
+         FROM worker_contracts
+         WHERE worker_id = ?
+           AND start_date <= ?
+           AND (end_date IS NULL OR end_date >= ?)
+         ORDER BY start_date DESC
+         LIMIT 1`
+      )
+      .bind(selectedWorkerId, endYmd, startYmd)
+      .first<{ hours_per_week: number; hours_per_month: number | null }>()
+  : null;
+
+const realUserMinutes = selectedUserId
+  ? allAssignments.results
+      .filter((a) => a.user_id === selectedUserId)
+      .reduce((acc, a) => acc + Math.max(0, toMinutes(a.planned_end) - toMinutes(a.planned_start)), 0)
+  : 0;
+const realUserHours = minutesToHours(realUserMinutes);
+const userQuota = selectedUserInfo?.monthly_hours_quota ?? null;
+const userDelta = userQuota !== null ? realUserHours - userQuota : null;
+
+const realWorkerMinutes = selectedWorkerId
+  ? allAssignments.results
+      .filter((a) => a.worker_id === selectedWorkerId)
+      .reduce((acc, a) => acc + Math.max(0, toMinutes(a.planned_end) - toMinutes(a.planned_start)), 0)
+  : 0;
+const realWorkerHours = minutesToHours(realWorkerMinutes);
+const workerMonthTarget = selectedWorkerContract?.hours_per_month ?? null;
+const workerWeekTarget = selectedWorkerContract?.hours_per_week ?? null;
+const daysInMonth = monthEnd.getUTCDate();
+const avgWeekHoursRealWorker = daysInMonth > 0 ? (realWorkerHours * 7) / daysInMonth : 0;
+const workerDeltaMonth = workerMonthTarget !== null ? realWorkerHours - workerMonthTarget : null;
+const workerDeltaWeek = workerWeekTarget !== null ? avgWeekHoursRealWorker - workerWeekTarget : null;
+
 const query = `
   SELECT a.id, a.date, a.kind, a.template_id, a.planned_start, a.planned_end,
          su.id as user_id, su.name as user_name,
@@ -87,20 +155,6 @@ const assignments = await database
     worker_id: string | null;
     worker_name: string | null;
   }>();
-
-const byDate = new Map<string, (typeof assignments.results)[number][]>();
-for (const a of assignments.results) {
-  const arr = byDate.get(a.date) ?? [];
-  arr.push(a);
-  byDate.set(a.date, arr);
-}
-
-const allByDate = new Map<string, (typeof allAssignments.results)[number][]>();
-for (const a of allAssignments.results) {
-  const arr = allByDate.get(a.date) ?? [];
-  arr.push(a);
-  allByDate.set(a.date, arr);
-}
 
 const holidayRows = await database
   .prepare(`SELECT date FROM holidays WHERE date >= ? AND date <= ? AND scope IN ('national','catalonia','barcelona','mataro')`)
@@ -207,7 +261,6 @@ const buildQuery = (monthKey: string, dayKey?: string) => {
 const clearFilterQuery = () => {
   const p = new URLSearchParams();
   p.set('month', safeMonthKey);
-  if (selectedDay) p.set('day', selectedDay);
   return `/admin/schedule/month?${p.toString()}`;
 };
 
@@ -337,6 +390,58 @@ const mergedMonthCount = Array.from(mergedByDate.values()).reduce((acc, arr) => 
     ) : null}
   </div>
 
+  {(selectedUserInfo || selectedWorkerInfo) && (
+    <section class="mt-4 grid gap-3 md:grid-cols-2">
+      {selectedUserInfo && (
+        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+          <div class="text-xs text-emerald-700">Cómputo real usuario (assignments del mes)</div>
+          <div class="mt-1 text-base font-semibold text-emerald-900">{selectedUserInfo.name}</div>
+          <div class="mt-2 text-sm text-emerald-900">Horas reales: <span class="font-semibold">{formatHours(realUserHours)}</span></div>
+          <div class="text-sm text-emerald-900">Cuota ayuntamiento: <span class="font-semibold">{userQuota !== null ? `${userQuota} h` : 'No definida'}</span></div>
+          <div class={`mt-2 text-sm font-semibold ${userDelta === null ? 'text-emerald-800' : userDelta > 0.02 ? 'text-amber-700' : userDelta < -0.02 ? 'text-blue-700' : 'text-emerald-700'}`}>
+            {userDelta === null
+              ? 'Sin cuota mensual configurada'
+              : userDelta > 0.02
+                ? `Sobra ${userDelta.toFixed(2)} h`
+                : userDelta < -0.02
+                  ? `Faltan ${Math.abs(userDelta).toFixed(2)} h`
+                  : 'Cuota en equilibrio'}
+          </div>
+        </div>
+      )}
+      {selectedWorkerInfo && (
+        <div class="rounded-2xl border border-sky-200 bg-sky-50 p-4">
+          <div class="text-xs text-sky-700">Cómputo real trabajadora (assignments del mes)</div>
+          <div class="mt-1 text-base font-semibold text-sky-900">{selectedWorkerInfo.name}</div>
+          <div class="mt-2 text-sm text-sky-900">Horas reales: <span class="font-semibold">{formatHours(realWorkerHours)}</span></div>
+          <div class="text-sm text-sky-900">Objetivo mensual contrato: <span class="font-semibold">{workerMonthTarget !== null ? `${workerMonthTarget} h` : 'No definido'}</span></div>
+          <div class="text-sm text-sky-900">Media semanal real: <span class="font-semibold">{avgWeekHoursRealWorker.toFixed(2)} h/sem</span> {workerWeekTarget !== null ? `· objetivo ${workerWeekTarget} h/sem` : ''}</div>
+          <div class={`mt-2 text-sm font-semibold ${
+            workerDeltaMonth !== null
+              ? workerDeltaMonth > 0.02 ? 'text-amber-700' : workerDeltaMonth < -0.02 ? 'text-blue-700' : 'text-emerald-700'
+              : workerDeltaWeek !== null
+                ? workerDeltaWeek > 0.02 ? 'text-amber-700' : workerDeltaWeek < -0.02 ? 'text-blue-700' : 'text-emerald-700'
+                : 'text-sky-800'
+          }`}>
+            {workerDeltaMonth !== null
+              ? workerDeltaMonth > 0.02
+                ? `Sobra ${workerDeltaMonth.toFixed(2)} h frente al mes`
+                : workerDeltaMonth < -0.02
+                  ? `Faltan ${Math.abs(workerDeltaMonth).toFixed(2)} h frente al mes`
+                  : 'Objetivo mensual en equilibrio'
+              : workerDeltaWeek !== null
+                ? workerDeltaWeek > 0.02
+                  ? `Sobra ${workerDeltaWeek.toFixed(2)} h/sem de media`
+                  : workerDeltaWeek < -0.02
+                    ? `Faltan ${Math.abs(workerDeltaWeek).toFixed(2)} h/sem de media`
+                    : 'Objetivo semanal en equilibrio'
+                : 'Sin contrato para comparar'}
+          </div>
+        </div>
+      )}
+    </section>
+  )}
+
   <section class="mt-4 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
     <div class="grid grid-cols-7 gap-2 text-center text-xs font-semibold uppercase text-zinc-500">
       <div>Lun</div><div>Mar</div><div>Mié</div><div>Jue</div><div>Vie</div><div>Sáb</div><div>Dom</div>
@@ -362,9 +467,13 @@ const mergedMonthCount = Array.from(mergedByDate.values()).reduce((acc, arr) => 
           >
             <div class="flex items-center justify-between">
               <span class="text-sm font-semibold text-zinc-800">{c.day}</span>
-              <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700">{items.length}</span>
             </div>
-            <div class="mt-6 flex items-center gap-1">
+            <div class="mt-3 flex items-center justify-center">
+              <div class="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-300 bg-white text-sm font-semibold text-zinc-800">
+                {items.length}
+              </div>
+            </div>
+            <div class="mt-3 flex items-center gap-1">
               <span class="h-2 w-2 rounded-full bg-blue-500" title="Día con planificación mensual"></span>
             </div>
           </a>
@@ -389,6 +498,7 @@ const mergedMonthCount = Array.from(mergedByDate.values()).reduce((acc, arr) => 
             <th class="px-3 py-2">Usuario/a</th>
             <th class="px-3 py-2">Tipo</th>
             <th class="px-3 py-2">Trabajadora</th>
+            <th class="px-3 py-2">Estado</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-zinc-100">
@@ -398,11 +508,16 @@ const mergedMonthCount = Array.from(mergedByDate.values()).reduce((acc, arr) => 
               <td class="px-3 py-2 font-semibold text-emerald-700">{it.user_name}</td>
               <td class="px-3 py-2"><span class="rounded bg-zinc-100 px-2 py-0.5 text-xs capitalize">{it.kind}</span></td>
               <td class="px-3 py-2 text-zinc-700">{it.worker_name ?? 'Sin asignar'}</td>
+              <td class="px-3 py-2">
+                <span class={`rounded px-2 py-0.5 text-xs font-medium ${it.source === 'assignment' ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}`}>
+                  {it.source === 'assignment' ? 'Real' : 'Proyección'}
+                </span>
+              </td>
             </tr>
           ))}
           {selectedItems.length === 0 && (
             <tr>
-              <td colspan="4" class="px-3 py-6 text-center text-zinc-500 italic">
+              <td colspan="5" class="px-3 py-6 text-center text-zinc-500 italic">
                 Selecciona un día del calendario para ver sus servicios.
               </td>
             </tr>
