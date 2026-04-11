@@ -92,6 +92,13 @@ if (Astro.request.method === 'POST') {
     return Astro.redirect(`/admin/schedule/week?week=${weekKey}`);
   }
 
+  if (action === 'regenerate_week') {
+    await database
+      .prepare(`DELETE FROM assignments WHERE source = 'template' AND status != 'done' AND date >= ? AND date <= ?`)
+      .bind(toYmd(new Date(weekDates[0])), toYmd(new Date(weekDates[6])))
+      .run();
+  }
+
   const dates = weekDates.map((d) => ({ d, ymd: toYmd(new Date(d)) }));
 
   const users = await database
@@ -136,9 +143,15 @@ if (Astro.request.method === 'POST') {
       for (const t of applicable) {
         await database
           .prepare(
-            `INSERT OR IGNORE INTO assignments
+            `INSERT INTO assignments
               (id, date, service_user_id, template_id, kind, planned_start, planned_end, source)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'template')`
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'template')
+             ON CONFLICT(service_user_id, date, template_id) DO UPDATE SET
+               kind = excluded.kind,
+               planned_start = excluded.planned_start,
+               planned_end = excluded.planned_end,
+               status = 'planned',
+               source = 'template'`
           )
           .bind(randomId(), ymd, u.id, t.id, kind === 'fin_semana' ? 'fin_semana' : t.kind, t.start_time, t.end_time)
           .run();
@@ -151,7 +164,7 @@ if (Astro.request.method === 'POST') {
 
 const assignments = await database
   .prepare(
-    `SELECT a.id, a.date, a.kind, a.planned_start, a.planned_end, a.assigned_worker_id,
+    `SELECT a.id, a.date, a.kind, a.source, a.template_id, a.planned_start, a.planned_end, a.assigned_worker_id,
             a.service_user_id,
             su.name as user_name,
             w.name as worker_name,
@@ -168,6 +181,8 @@ const assignments = await database
     id: string;
     date: string;
     kind: string;
+    source: string;
+    template_id: string | null;
     planned_start: string;
     planned_end: string;
     assigned_worker_id: string | null;
@@ -178,6 +193,21 @@ const assignments = await database
   }>();
 
 type AssignmentRow = (typeof assignments.results)[number];
+
+const assignmentsByDate = new Map<string, AssignmentRow[]>();
+for (const a of assignments.results) {
+  const arr = assignmentsByDate.get(a.date) ?? [];
+  arr.push(a);
+  assignmentsByDate.set(a.date, arr);
+}
+const groupedDays = Array.from(assignmentsByDate.entries())
+  .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  .map(([date, items]) => ({ date, items }));
+
+const formatDateEs = (ymd: string) => {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  return d.toLocaleDateString('es-ES', { weekday: 'long', day: '2-digit', month: '2-digit' });
+};
 
 const workers = await database
   .prepare(`SELECT id, name, worker_type, active FROM workers WHERE active = 1 ORDER BY name ASC`)
@@ -286,6 +316,12 @@ const formatMinutes = (minutes: number) => {
           Generar de plantillas
         </button>
       </form>
+      <form method="post" onsubmit="return confirm('Esto recalcula la semana desde plantillas y borra servicios de origen plantilla no finalizados. ¿Continuar?');">
+        <input type="hidden" name="_action" value="regenerate_week" />
+        <button class="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 transition-colors px-4 py-2 text-sm font-semibold text-zinc-800 shadow-sm">
+          Regenerar semana
+        </button>
+      </form>
       <form method="post">
         <input type="hidden" name="_action" value="auto_assign" />
         <button class="flex items-center gap-2 rounded-lg bg-[#0284C7] hover:bg-sky-700 transition-colors px-4 py-2 text-sm font-bold text-white shadow-sm" title="Asigna automáticamente la trabajadora más adecuada a los turnos sin asignar">
@@ -310,6 +346,9 @@ const formatMinutes = (minutes: number) => {
       Ver solo servicios sin trabajadora asignada
     </label>
   </div>
+  <p class="mt-3 text-xs text-zinc-500">
+    Si editas o borras plantillas de un usuario, usa <strong>Regenerar semana</strong> para refrescar la agenda y evitar datos antiguos.
+  </p>
 
   <section class="mt-6 rounded-2xl border border-zinc-200 bg-white shadow-sm overflow-hidden">
     <div class="p-6 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/50">
@@ -323,6 +362,7 @@ const formatMinutes = (minutes: number) => {
             <th class="px-6 py-3 font-semibold">Usuario/a</th>
             <th class="px-6 py-3 font-semibold">Tipo</th>
             <th class="px-6 py-3 font-semibold">Horario</th>
+            <th class="px-6 py-3 font-semibold">Origen</th>
             <th class="px-6 py-3 font-semibold">Requisito</th>
             <th class="px-6 py-3 font-semibold">Asignación</th>
           </tr>
@@ -338,6 +378,11 @@ const formatMinutes = (minutes: number) => {
                 </span>
               </td>
               <td class="px-6 py-4 font-bold text-[#4B79A1]">{a.planned_start} - {a.planned_end}</td>
+              <td class="px-6 py-4">
+                <span class={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${a.source === 'template' ? 'bg-indigo-50 text-indigo-700' : 'bg-zinc-100 text-zinc-700'}`}>
+                  {a.source === 'template' ? 'Plantilla' : 'Manual'}
+                </span>
+              </td>
               <td class="px-6 py-4 text-zinc-500 text-xs capitalize">{a.required_worker_type ?? 'Cualquiera'}</td>
               <td class="px-6 py-4">
                 {(() => {
@@ -405,13 +450,41 @@ const formatMinutes = (minutes: number) => {
           
           {assignments.results.length === 0 && (
             <tr>
-              <td colspan="6" class="px-6 py-8 text-center text-zinc-500 italic">
+              <td colspan="7" class="px-6 py-8 text-center text-zinc-500 italic">
                 No hay servicios planificados para esta semana. Genera el cuadrante usando las plantillas.
               </td>
             </tr>
           )}
         </tbody>
       </table>
+    </div>
+  </section>
+
+  <section class="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+    <h2 class="text-sm font-semibold">Vista por día</h2>
+    <p class="mt-1 text-xs text-zinc-600">Lectura rápida para revisar por fecha qué usuario tiene servicio, horario y trabajadora asignada.</p>
+    <div class="mt-4 space-y-3">
+      {groupedDays.map((day) => (
+        <details class="rounded-xl border border-zinc-200 bg-zinc-50/40" open>
+          <summary class="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-zinc-800">
+            {formatDateEs(day.date)} · {day.items.length} servicios
+          </summary>
+          <div class="border-t border-zinc-200 bg-white">
+            {day.items.map((a) => (
+              <div class="grid gap-2 border-b border-zinc-100 px-4 py-3 text-sm last:border-b-0 md:grid-cols-[1fr_auto_auto]">
+                <div class="font-semibold text-emerald-700 uppercase">{a.user_name}</div>
+                <div class="font-medium text-[#4B79A1]">{a.planned_start} - {a.planned_end}</div>
+                <div class="text-zinc-600">{a.worker_name ?? 'Sin asignar'}</div>
+              </div>
+            ))}
+          </div>
+        </details>
+      ))}
+      {groupedDays.length === 0 && (
+        <div class="rounded-lg border border-zinc-200 px-4 py-4 text-sm text-zinc-500 italic">
+          No hay servicios para mostrar por día en esta semana.
+        </div>
+      )}
     </div>
   </section>
 

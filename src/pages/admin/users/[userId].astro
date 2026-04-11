@@ -2,6 +2,7 @@
 import AppLayout from '../../../layouts/AppLayout.astro';
 import { db } from '../../../lib/db';
 import { randomId } from '../../../lib/crypto';
+import { toYmd } from '../../../lib/dates';
 import { computeUserMonthBreakdown, formatHours, minutesToHours } from '../../../lib/month-hours';
 
 export const prerender = false;
@@ -80,13 +81,85 @@ if (Astro.request.method === 'POST') {
     const templateId = String(formData.get('templateId') ?? '').trim();
     if (templateId) {
       await database
-        .prepare(`UPDATE assignments SET template_id = NULL, source = 'manual' WHERE template_id = ?`)
+        .prepare(`DELETE FROM assignments WHERE template_id = ? AND status != 'done'`)
         .bind(templateId)
         .run();
       await database
         .prepare(`DELETE FROM service_templates WHERE id = ? AND service_user_id = ?`)
         .bind(templateId, userId)
         .run();
+      const leftTemplates = await database
+        .prepare(`SELECT COUNT(*) AS c FROM service_templates WHERE service_user_id = ?`)
+        .bind(userId)
+        .first<{ c: number }>();
+      if ((leftTemplates?.c ?? 0) === 0) {
+        await database
+          .prepare(`DELETE FROM assignments WHERE service_user_id = ? AND template_id IS NULL AND source = 'manual' AND status != 'done'`)
+          .bind(userId)
+          .run();
+      }
+    }
+    return Astro.redirect(`/admin/users/${userId}`);
+  }
+
+  if (action === 'clean_orphan_assignments') {
+    await database
+      .prepare(`DELETE FROM assignments WHERE service_user_id = ? AND template_id IS NULL AND source = 'manual' AND status != 'done'`)
+      .bind(userId)
+      .run();
+    return Astro.redirect(`/admin/users/${userId}`);
+  }
+
+  if (action === 'sync_user_schedule') {
+    await database
+      .prepare(`DELETE FROM assignments WHERE service_user_id = ? AND source = 'template' AND status != 'done'`)
+      .bind(userId)
+      .run();
+    const templatesForUser = await database
+      .prepare(`SELECT id, kind, weekday, start_time, end_time FROM service_templates WHERE service_user_id = ?`)
+      .bind(userId)
+      .all<{ id: string; kind: 'laborable' | 'festivo'; weekday: number | null; start_time: string; end_time: string }>();
+    const currentYear = new Date().getUTCFullYear();
+    const monthStart = new Date(Date.UTC(currentYear, 0, 1));
+    const monthEnd = new Date(Date.UTC(currentYear, 11, 31));
+    const startYmd = toYmd(monthStart);
+    const endYmd = toYmd(monthEnd);
+    const holidayRows = await database
+      .prepare(`SELECT date FROM holidays WHERE date >= ? AND date <= ? AND scope IN ('national','catalonia','barcelona','mataro')`)
+      .bind(startYmd, endYmd)
+      .all<{ date: string }>();
+    const holidaySet = new Set(holidayRows.results.map((r) => r.date));
+    for (let d = new Date(monthStart); d <= monthEnd; d.setUTCDate(d.getUTCDate() + 1)) {
+      const ymd = toYmd(new Date(d));
+      const weekday = d.getUTCDay();
+      const isWeekend = weekday === 0 || weekday === 6;
+      const dayKind = holidaySet.has(ymd) ? 'festivo' : isWeekend ? 'fin_semana' : 'laborable';
+      const applicable = templatesForUser.results.filter((t) => {
+        if (dayKind === 'laborable') {
+          if (t.kind !== 'laborable') return false;
+          if (t.weekday === null) return true;
+          return t.weekday === weekday;
+        }
+        if (t.kind !== 'festivo') return false;
+        if (t.weekday === null) return true;
+        return t.weekday === weekday;
+      });
+      for (const t of applicable) {
+        await database
+          .prepare(
+            `INSERT INTO assignments
+              (id, date, service_user_id, template_id, kind, planned_start, planned_end, source)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'template')
+             ON CONFLICT(service_user_id, date, template_id) DO UPDATE SET
+               kind = excluded.kind,
+               planned_start = excluded.planned_start,
+               planned_end = excluded.planned_end,
+               status = 'planned',
+               source = 'template'`
+          )
+          .bind(randomId(), ymd, userId, t.id, dayKind === 'fin_semana' ? 'fin_semana' : t.kind, t.start_time, t.end_time)
+          .run();
+      }
     }
     return Astro.redirect(`/admin/users/${userId}`);
   }
@@ -122,6 +195,11 @@ const templates = await db()
   )
   .bind(userId)
   .all<{ id: string; kind: string; weekday: number | null; start_time: string; end_time: string; required_worker_type: string }>();
+
+const orphanAssignments = await db()
+  .prepare(`SELECT COUNT(*) AS c FROM assignments WHERE service_user_id = ? AND template_id IS NULL AND source = 'manual' AND status != 'done'`)
+  .bind(userId)
+  .first<{ c: number }>();
 
 type TemplateRow = (typeof templates.results)[number];
 
@@ -218,6 +296,22 @@ const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssign
 
     <section class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
       <h2 class="text-sm font-semibold">Plantillas de servicio</h2>
+      <div class="mt-3 flex flex-wrap items-center gap-2">
+        <form method="post">
+          <input type="hidden" name="_action" value="sync_user_schedule" />
+          <button class="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50">
+            Regenerar agenda anual de este usuario
+          </button>
+        </form>
+        {((orphanAssignments?.c ?? 0) > 0) && (
+          <form method="post" onsubmit="return confirm('Se limpiarán servicios antiguos sin plantilla de este usuario. ¿Continuar?');">
+            <input type="hidden" name="_action" value="clean_orphan_assignments" />
+            <button class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100">
+              Limpiar {orphanAssignments?.c ?? 0} servicios huérfanos
+            </button>
+          </form>
+        )}
+      </div>
 
       <form method="post" class="mt-4 grid gap-4 sm:grid-cols-2">
         <input type="hidden" name="_action" value="add_template" />
@@ -311,7 +405,7 @@ const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssign
                 <td class="px-3 py-3 text-zinc-600">{t.end_time}</td>
                 <td class="px-3 py-3 text-zinc-600 capitalize text-xs">{t.required_worker_type}</td>
                 <td class="px-3 py-3 text-right">
-                  <form method="post" class="inline" onsubmit="return confirm('¿Seguro que deseas eliminar esta plantilla?');">
+                  <form method="post" class="inline">
                     <input type="hidden" name="_action" value="delete_template" />
                     <input type="hidden" name="templateId" value={t.id} />
                     <button type="submit" class="text-zinc-400 hover:text-red-600 transition-colors p-1" title="Eliminar plantilla">
