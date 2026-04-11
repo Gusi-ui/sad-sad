@@ -80,6 +80,10 @@ if (Astro.request.method === 'POST') {
     const templateId = String(formData.get('templateId') ?? '').trim();
     if (templateId) {
       await database
+        .prepare(`UPDATE assignments SET template_id = NULL, source = 'manual' WHERE template_id = ?`)
+        .bind(templateId)
+        .run();
+      await database
         .prepare(`DELETE FROM service_templates WHERE id = ? AND service_user_id = ?`)
         .bind(templateId, userId)
         .run();
@@ -414,4 +418,3 @@ const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssign
     </section>
   </div>
 </AppLayout>
-
