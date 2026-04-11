@@ -1,0 +1,216 @@
+---
+import AppLayout from '../../../layouts/AppLayout.astro';
+import { db } from '../../../lib/db';
+import { toYmd } from '../../../lib/dates';
+
+export const prerender = false;
+
+const database = db();
+const now = new Date();
+const defaultMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+const monthParam = String(Astro.url.searchParams.get('month') ?? defaultMonth);
+const [yRaw, mRaw] = monthParam.split('-');
+const year = Number(yRaw);
+const month = Number(mRaw);
+const safeYear = Number.isFinite(year) ? year : now.getUTCFullYear();
+const safeMonth = Number.isFinite(month) && month >= 1 && month <= 12 ? month : now.getUTCMonth() + 1;
+const safeMonthKey = `${safeYear}-${String(safeMonth).padStart(2, '0')}`;
+
+const selectedUserIdRaw = String(Astro.url.searchParams.get('userId') ?? '').trim();
+const selectedWorkerIdRaw = String(Astro.url.searchParams.get('workerId') ?? '').trim();
+const selectedUserId = selectedUserIdRaw === '' ? null : selectedUserIdRaw;
+const selectedWorkerId = selectedWorkerIdRaw === '' ? null : selectedWorkerIdRaw;
+const selectedDayRaw = String(Astro.url.searchParams.get('day') ?? '').trim();
+const selectedDay = selectedDayRaw === '' ? null : selectedDayRaw;
+
+const monthStart = new Date(Date.UTC(safeYear, safeMonth - 1, 1));
+const monthEnd = new Date(Date.UTC(safeYear, safeMonth, 0));
+const startYmd = toYmd(monthStart);
+const endYmd = toYmd(monthEnd);
+
+const users = await database
+  .prepare(`SELECT id, name FROM service_users WHERE active = 1 ORDER BY name ASC`)
+  .all<{ id: string; name: string }>();
+const workers = await database
+  .prepare(`SELECT id, name FROM workers WHERE active = 1 ORDER BY name ASC`)
+  .all<{ id: string; name: string }>();
+
+const query = `
+  SELECT a.id, a.date, a.kind, a.planned_start, a.planned_end,
+         su.id as user_id, su.name as user_name,
+         w.id as worker_id, w.name as worker_name
+  FROM assignments a
+  JOIN service_users su ON su.id = a.service_user_id
+  LEFT JOIN workers w ON w.id = a.assigned_worker_id
+  WHERE a.date >= ? AND a.date <= ?
+    AND (? IS NULL OR su.id = ?)
+    AND (? IS NULL OR w.id = ?)
+    AND a.status != 'cancelled'
+  ORDER BY a.date ASC, a.planned_start ASC, su.name ASC
+`;
+const assignments = await database
+  .prepare(query)
+  .bind(startYmd, endYmd, selectedUserId, selectedUserId, selectedWorkerId, selectedWorkerId)
+  .all<{
+    id: string;
+    date: string;
+    kind: string;
+    planned_start: string;
+    planned_end: string;
+    user_id: string;
+    user_name: string;
+    worker_id: string | null;
+    worker_name: string | null;
+  }>();
+
+const byDate = new Map<string, (typeof assignments.results)[number][]>();
+for (const a of assignments.results) {
+  const arr = byDate.get(a.date) ?? [];
+  arr.push(a);
+  byDate.set(a.date, arr);
+}
+
+const holidayRows = await database
+  .prepare(`SELECT date FROM holidays WHERE date >= ? AND date <= ? AND scope IN ('national','catalonia','barcelona','mataro')`)
+  .bind(startYmd, endYmd)
+  .all<{ date: string }>();
+const holidaySet = new Set(holidayRows.results.map((r) => r.date));
+
+const totalDays = monthEnd.getUTCDate();
+const mondayIndex = (monthStart.getUTCDay() + 6) % 7;
+const cells: Array<{ ymd: string | null; day: number | null }> = [];
+for (let i = 0; i < mondayIndex; i += 1) cells.push({ ymd: null, day: null });
+for (let day = 1; day <= totalDays; day += 1) {
+  const ymd = `${safeYear}-${String(safeMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  cells.push({ ymd, day });
+}
+while (cells.length % 7 !== 0) cells.push({ ymd: null, day: null });
+
+const selectedItems = selectedDay ? byDate.get(selectedDay) ?? [] : [];
+const prevMonth = new Date(Date.UTC(safeYear, safeMonth - 2, 1));
+const nextMonth = new Date(Date.UTC(safeYear, safeMonth, 1));
+const prevMonthKey = `${prevMonth.getUTCFullYear()}-${String(prevMonth.getUTCMonth() + 1).padStart(2, '0')}`;
+const nextMonthKey = `${nextMonth.getUTCFullYear()}-${String(nextMonth.getUTCMonth() + 1).padStart(2, '0')}`;
+
+const monthLabel = new Date(Date.UTC(safeYear, safeMonth - 1, 1)).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+const buildQuery = (monthKey: string, dayKey?: string) => {
+  const p = new URLSearchParams();
+  p.set('month', monthKey);
+  if (selectedUserId) p.set('userId', selectedUserId);
+  if (selectedWorkerId) p.set('workerId', selectedWorkerId);
+  if (dayKey) p.set('day', dayKey);
+  return `/admin/schedule/month?${p.toString()}`;
+};
+---
+
+<AppLayout title="Agenda mensual | Admin">
+  <div class="flex items-center justify-between border-b border-zinc-200 pb-4">
+    <div>
+      <div class="flex items-center gap-2">
+        <a class="text-sm font-medium text-zinc-500 hover:text-zinc-800 transition-colors" href="/admin">Panel de control</a>
+        <span class="text-zinc-400">/</span>
+        <a class="text-sm font-medium text-zinc-500 hover:text-zinc-800 transition-colors" href="/admin/schedule/week">Agenda semanal</a>
+        <span class="text-zinc-400">/</span>
+        <span class="text-sm font-medium text-zinc-800">Agenda mensual</span>
+      </div>
+      <h1 class="mt-2 text-2xl font-bold tracking-tight text-zinc-900">Agenda Mensual</h1>
+      <p class="mt-1 text-sm text-zinc-600">Calendario operativo para ver el mes completo por usuario o trabajadora.</p>
+    </div>
+    <a href="/admin/schedule/week" class="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50">Volver a semana</a>
+  </div>
+
+  <form method="get" class="mt-6 grid gap-3 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm md:grid-cols-4">
+    <label class="block">
+      <span class="text-sm font-medium text-zinc-700">Mes</span>
+      <input type="month" name="month" value={safeMonthKey} class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" />
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium text-zinc-700">Usuario/a</span>
+      <select name="userId" class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm">
+        <option value="">Todos</option>
+        {users.results.map((u) => (
+          <option value={u.id} selected={selectedUserId === u.id}>{u.name}</option>
+        ))}
+      </select>
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium text-zinc-700">Trabajadora</span>
+      <select name="workerId" class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm">
+        <option value="">Todas</option>
+        {workers.results.map((w) => (
+          <option value={w.id} selected={selectedWorkerId === w.id}>{w.name}</option>
+        ))}
+      </select>
+    </label>
+    <div class="flex items-end gap-2">
+      <button class="w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white">Aplicar</button>
+    </div>
+  </form>
+
+  <div class="mt-6 flex items-center justify-between">
+    <a href={buildQuery(prevMonthKey)} class="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm hover:bg-zinc-50">← Mes anterior</a>
+    <h2 class="text-lg font-semibold capitalize">{monthLabel}</h2>
+    <a href={buildQuery(nextMonthKey)} class="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm hover:bg-zinc-50">Mes siguiente →</a>
+  </div>
+
+  <section class="mt-4 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+    <div class="grid grid-cols-7 gap-2 text-center text-xs font-semibold uppercase text-zinc-500">
+      <div>Lun</div><div>Mar</div><div>Mié</div><div>Jue</div><div>Vie</div><div>Sáb</div><div>Dom</div>
+    </div>
+    <div class="mt-2 grid grid-cols-7 gap-2">
+      {cells.map((c) => {
+        if (!c.ymd || !c.day) return <div class="min-h-[88px] rounded-lg bg-zinc-50" />;
+        const items = byDate.get(c.ymd) ?? [];
+        const isHoliday = holidaySet.has(c.ymd);
+        const isSelected = selectedDay === c.ymd;
+        return (
+          <a href={buildQuery(safeMonthKey, c.ymd)} class={`min-h-[88px] rounded-lg border p-2 transition-colors ${isSelected ? 'border-indigo-500 bg-indigo-50' : isHoliday ? 'border-orange-200 bg-orange-50' : 'border-zinc-200 hover:bg-zinc-50'}`}>
+            <div class="flex items-center justify-between">
+              <span class="text-sm font-semibold text-zinc-800">{c.day}</span>
+              <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700">{items.length}</span>
+            </div>
+            <div class="mt-1 space-y-1">
+              {items.slice(0, 2).map((it) => (
+                <div class="truncate text-xs text-zinc-600">{it.planned_start} {it.user_name}</div>
+              ))}
+              {items.length > 2 && <div class="text-xs text-zinc-400">+{items.length - 2} más</div>}
+            </div>
+          </a>
+        );
+      })}
+    </div>
+  </section>
+
+  <section class="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+    <h3 class="text-sm font-semibold">Servicios del día {selectedDay ? selectedDay : '—'}</h3>
+    <div class="mt-3 overflow-x-auto">
+      <table class="w-full min-w-[680px] text-left text-sm">
+        <thead class="text-xs uppercase text-zinc-500">
+          <tr>
+            <th class="px-3 py-2">Horario</th>
+            <th class="px-3 py-2">Usuario/a</th>
+            <th class="px-3 py-2">Tipo</th>
+            <th class="px-3 py-2">Trabajadora</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-zinc-100">
+          {selectedItems.map((it) => (
+            <tr>
+              <td class="px-3 py-2 font-medium text-[#4B79A1]">{it.planned_start} - {it.planned_end}</td>
+              <td class="px-3 py-2 font-semibold text-emerald-700">{it.user_name}</td>
+              <td class="px-3 py-2"><span class="rounded bg-zinc-100 px-2 py-0.5 text-xs capitalize">{it.kind}</span></td>
+              <td class="px-3 py-2 text-zinc-700">{it.worker_name ?? 'Sin asignar'}</td>
+            </tr>
+          ))}
+          {selectedItems.length === 0 && (
+            <tr>
+              <td colspan="4" class="px-3 py-6 text-center text-zinc-500 italic">
+                Selecciona un día del calendario para ver sus servicios.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</AppLayout>

@@ -388,6 +388,9 @@ const formatMinutes = (minutes: number) => {
         <input class="w-36 rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all" name="week" value={weekKey} />
         <button class="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50 transition-colors shadow-sm">Ir</button>
       </form>
+      <a href="/admin/schedule/month" class="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50 transition-colors shadow-sm">
+        Vista mensual
+      </a>
       <form method="post">
         <input type="hidden" name="_action" value="generate" />
         <button class="flex items-center gap-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 transition-colors px-4 py-2 text-sm font-bold text-white shadow-sm">
