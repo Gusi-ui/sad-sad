@@ -18,8 +18,10 @@ const safeMonthKey = `${safeYear}-${String(safeMonth).padStart(2, '0')}`;
 
 const selectedUserIdRaw = String(Astro.url.searchParams.get('userId') ?? '').trim();
 const selectedWorkerIdRaw = String(Astro.url.searchParams.get('workerId') ?? '').trim();
+const onlyFestiveRaw = String(Astro.url.searchParams.get('onlyFestive') ?? '').trim();
 const selectedUserId = selectedUserIdRaw === '' ? null : selectedUserIdRaw;
 const selectedWorkerId = selectedWorkerIdRaw === '' ? null : selectedWorkerIdRaw;
+const onlyFestive = onlyFestiveRaw === '1';
 const selectedDayRaw = String(Astro.url.searchParams.get('day') ?? '').trim();
 const selectedDay = selectedDayRaw === '' ? null : selectedDayRaw;
 
@@ -35,6 +37,30 @@ const workers = await database
   .prepare(`SELECT id, name FROM workers WHERE active = 1 ORDER BY name ASC`)
   .all<{ id: string; name: string }>();
 
+const allAssignments = await database
+  .prepare(
+    `SELECT a.id, a.date, a.kind, a.planned_start, a.planned_end,
+            su.id as user_id, su.name as user_name,
+            w.id as worker_id, w.name as worker_name
+     FROM assignments a
+     JOIN service_users su ON su.id = a.service_user_id
+     LEFT JOIN workers w ON w.id = a.assigned_worker_id
+     WHERE a.date >= ? AND a.date <= ? AND a.status != 'cancelled'
+     ORDER BY a.date ASC, a.planned_start ASC, su.name ASC`
+  )
+  .bind(startYmd, endYmd)
+  .all<{
+    id: string;
+    date: string;
+    kind: string;
+    planned_start: string;
+    planned_end: string;
+    user_id: string;
+    user_name: string;
+    worker_id: string | null;
+    worker_name: string | null;
+  }>();
+
 const query = `
   SELECT a.id, a.date, a.kind, a.planned_start, a.planned_end,
          su.id as user_id, su.name as user_name,
@@ -45,12 +71,13 @@ const query = `
   WHERE a.date >= ? AND a.date <= ?
     AND (? IS NULL OR su.id = ?)
     AND (? IS NULL OR w.id = ?)
+    AND (? = 0 OR a.kind IN ('festivo','fin_semana'))
     AND a.status != 'cancelled'
   ORDER BY a.date ASC, a.planned_start ASC, su.name ASC
 `;
 const assignments = await database
   .prepare(query)
-  .bind(startYmd, endYmd, selectedUserId, selectedUserId, selectedWorkerId, selectedWorkerId)
+  .bind(startYmd, endYmd, selectedUserId, selectedUserId, selectedWorkerId, selectedWorkerId, onlyFestive ? 1 : 0)
   .all<{
     id: string;
     date: string;
@@ -68,6 +95,13 @@ for (const a of assignments.results) {
   const arr = byDate.get(a.date) ?? [];
   arr.push(a);
   byDate.set(a.date, arr);
+}
+
+const allByDate = new Map<string, (typeof allAssignments.results)[number][]>();
+for (const a of allAssignments.results) {
+  const arr = allByDate.get(a.date) ?? [];
+  arr.push(a);
+  allByDate.set(a.date, arr);
 }
 
 const holidayRows = await database
@@ -98,7 +132,15 @@ const buildQuery = (monthKey: string, dayKey?: string) => {
   p.set('month', monthKey);
   if (selectedUserId) p.set('userId', selectedUserId);
   if (selectedWorkerId) p.set('workerId', selectedWorkerId);
+  if (onlyFestive) p.set('onlyFestive', '1');
   if (dayKey) p.set('day', dayKey);
+  return `/admin/schedule/month?${p.toString()}`;
+};
+
+const clearFilterQuery = () => {
+  const p = new URLSearchParams();
+  p.set('month', safeMonthKey);
+  if (selectedDay) p.set('day', selectedDay);
   return `/admin/schedule/month?${p.toString()}`;
 };
 ---
@@ -119,7 +161,7 @@ const buildQuery = (monthKey: string, dayKey?: string) => {
     <a href="/admin/schedule/week" class="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50">Volver a semana</a>
   </div>
 
-  <form method="get" class="mt-6 grid gap-3 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm md:grid-cols-4">
+  <form method="get" class="mt-6 grid gap-3 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm md:grid-cols-5">
     <label class="block">
       <span class="text-sm font-medium text-zinc-700">Mes</span>
       <input type="month" name="month" value={safeMonthKey} class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" />
@@ -142,8 +184,13 @@ const buildQuery = (monthKey: string, dayKey?: string) => {
         ))}
       </select>
     </label>
+    <label class="flex items-end gap-2 pb-2">
+      <input type="checkbox" name="onlyFestive" value="1" checked={onlyFestive} class="h-4 w-4 rounded border-zinc-300 text-red-600 focus:ring-red-500" />
+      <span class="text-sm font-medium text-zinc-700">Solo festivos (incluye finde)</span>
+    </label>
     <div class="flex items-end gap-2">
       <button class="w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white">Aplicar</button>
+      <a href={clearFilterQuery()} class="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50 whitespace-nowrap">Limpiar</a>
     </div>
   </form>
 
@@ -153,6 +200,15 @@ const buildQuery = (monthKey: string, dayKey?: string) => {
     <a href={buildQuery(nextMonthKey)} class="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm hover:bg-zinc-50">Mes siguiente →</a>
   </div>
 
+  <div class="mt-3 text-xs text-zinc-600">
+    Servicios del mes (totales): <span class="font-semibold text-zinc-800">{allAssignments.results.length}</span>
+    {selectedUserId || selectedWorkerId || onlyFestive ? (
+      <>
+        {' '}· Filtrados: <span class="font-semibold text-zinc-800">{assignments.results.length}</span>
+      </>
+    ) : null}
+  </div>
+
   <section class="mt-4 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
     <div class="grid grid-cols-7 gap-2 text-center text-xs font-semibold uppercase text-zinc-500">
       <div>Lun</div><div>Mar</div><div>Mié</div><div>Jue</div><div>Vie</div><div>Sáb</div><div>Dom</div>
@@ -160,7 +216,7 @@ const buildQuery = (monthKey: string, dayKey?: string) => {
     <div class="mt-2 grid grid-cols-7 gap-2">
       {cells.map((c) => {
         if (!c.ymd || !c.day) return <div class="min-h-[88px] rounded-lg bg-zinc-50" />;
-        const items = byDate.get(c.ymd) ?? [];
+        const items = allByDate.get(c.ymd) ?? [];
         const isHoliday = holidaySet.has(c.ymd);
         const weekday = new Date(`${c.ymd}T00:00:00Z`).getUTCDay();
         const isWeekend = weekday === 0 || weekday === 6;
@@ -171,11 +227,9 @@ const buildQuery = (monthKey: string, dayKey?: string) => {
             class={`min-h-[88px] rounded-lg border p-2 transition-colors ${
               isSelected
                 ? 'border-indigo-500 bg-indigo-50'
-                : isHoliday
+                : (isHoliday || isWeekend)
                   ? 'border-red-300 bg-red-50'
-                  : isWeekend
-                    ? 'border-sky-200 bg-sky-50'
-                    : 'border-zinc-200 hover:bg-zinc-50'
+                  : 'border-zinc-200 hover:bg-zinc-50'
             }`}
           >
             <div class="flex items-center justify-between">
@@ -183,8 +237,7 @@ const buildQuery = (monthKey: string, dayKey?: string) => {
               <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700">{items.length}</span>
             </div>
             <div class="mt-6 flex items-center gap-1">
-              {isHoliday && <span class="h-2 w-2 rounded-full bg-red-500" title="Festivo"></span>}
-              {!isHoliday && isWeekend && <span class="h-2 w-2 rounded-full bg-sky-500" title="Fin de semana"></span>}
+              <span class="h-2 w-2 rounded-full bg-blue-500" title="Día con planificación mensual"></span>
             </div>
           </a>
         );
@@ -193,8 +246,8 @@ const buildQuery = (monthKey: string, dayKey?: string) => {
   </section>
 
   <div class="mt-3 flex flex-wrap items-center gap-3 text-xs text-zinc-600">
-    <span class="inline-flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-red-500"></span> Festivo</span>
-    <span class="inline-flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-sky-500"></span> Fin de semana</span>
+    <span class="inline-flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-blue-500"></span> Día del calendario</span>
+    <span class="inline-flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-red-500"></span> Festivo / Fin de semana</span>
     <span class="inline-flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-zinc-400"></span> Laborable</span>
   </div>
 
