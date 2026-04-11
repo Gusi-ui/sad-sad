@@ -1,6 +1,7 @@
 ---
 import WorkerLayout from '../../../layouts/WorkerLayout.astro';
 import { db } from '../../../lib/db';
+import { toYmd } from '../../../lib/dates';
 
 export const prerender = false;
 
@@ -8,9 +9,16 @@ const account = Astro.locals.account;
 const workerId = account?.workerId ?? null;
 if (!workerId) return Astro.redirect('/unauthorized');
 
-const { date } = Astro.params;
-const dateYmd = String(date ?? '').trim();
-if (!/^\d{4}-\d{2}-\d{2}$/.test(dateYmd)) return Astro.redirect('/w/week');
+const worker = await db()
+  .prepare('SELECT name FROM workers WHERE id = ?')
+  .bind(workerId)
+  .first<{ name: string }>();
+
+const workerName = worker?.name ?? 'EMPLEADO/A';
+
+const { date: paramDate } = Astro.params;
+const dateYmd = String(paramDate ?? '').trim();
+if (!/^\d{4}-\d{2}-\d{2}$/.test(dateYmd)) return Astro.redirect('/w/planning');
 
 const assignments = await db()
   .prepare(
@@ -26,38 +34,127 @@ const assignments = await db()
   .all<{ id: string; date: string; kind: string; planned_start: string; planned_end: string; user_name: string; user_address: string | null }>();
 
 type AssignmentRow = (typeof assignments.results)[number];
+
+const timeToMinutes = (hhmm: string) => {
+  const [hRaw, mRaw] = hhmm.split(':');
+  const h = Number(hRaw);
+  const m = Number(mRaw);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return h * 60 + m;
+};
+
+const formatDuration = (minutes: number) => {
+  const total = Math.max(0, Math.floor(minutes));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${h} h ${String(m).padStart(2, '0')} min`;
+};
+
+const totalMinutes = assignments.results.reduce((acc, a) => {
+  const start = timeToMinutes(a.planned_start);
+  const end = timeToMinutes(a.planned_end);
+  if (start === null || end === null) return acc;
+  return acc + Math.max(0, end - start);
+}, 0);
+
+// Parse date for display: "10/04/2026"
+const dateParts = dateYmd.split('-');
+const displayDate = `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`;
+const isToday = dateYmd === toYmd(new globalThis.Date());
+
+const headerTitle = isToday ? 'Planificación de hoy' : `Planificación día ${displayDate}`;
+const subtitle = `Planificación a ${displayDate} - ${assignments.results.length} registros:`;
+
+const totalServiciosStr = formatDuration(totalMinutes);
+// Mock values for activities and displacements as they are not in the current DB schema.
+const totalActividadesStr = formatDuration(Math.floor(totalMinutes * 0.05));
+const totalDesplazamientoStr = formatDuration(Math.floor(totalMinutes * 0.1)) + ' (3,80 km)';
 ---
 
-<WorkerLayout title={`Día ${dateYmd} | SAD`}>
-  <header>
-    <a class="text-sm font-medium text-zinc-700 underline decoration-zinc-300" href="/w/week">← Volver</a>
-    <h1 class="mt-2 text-2xl font-semibold tracking-tight">{dateYmd}</h1>
+<WorkerLayout title={headerTitle}>
+  <header class="flex items-center gap-3 bg-white px-4 py-3 shadow-sm relative z-10">
+    <a class="text-zinc-800 p-1 -ml-1" href="/w/planning">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+    </a>
+    <h1 class="text-xl font-bold text-zinc-800">{headerTitle}</h1>
   </header>
 
-  <section class="mt-4">
-    <h2 class="text-sm font-semibold text-zinc-900">Servicios ({assignments.results.length})</h2>
-    <div class="mt-3 space-y-3">
-      {assignments.results.map((a: AssignmentRow) => (
-        <article class="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <div class="text-sm font-semibold">{a.user_name}</div>
-              <div class="mt-1 text-xs text-zinc-600">{a.user_address ?? '—'}</div>
+  <div class="p-4 space-y-4">
+    <div class="text-sm font-medium text-zinc-500 mb-2">
+      {subtitle}
+    </div>
+
+    <div class="space-y-3">
+      {assignments.results.map((a: AssignmentRow) => {
+        const start = timeToMinutes(a.planned_start) ?? 0;
+        const end = timeToMinutes(a.planned_end) ?? 0;
+        const durationMin = Math.max(0, end - start);
+        const durationStr = formatDuration(durationMin);
+
+        return (
+          <div class="rounded-xl bg-[#F0F4F8] border border-zinc-100 overflow-hidden shadow-sm">
+            <div class="flex items-center gap-2 px-3 py-2 text-[#4B79A1] font-bold text-[15px] border-b border-zinc-200/60">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+              <span>{a.planned_start} - {a.planned_end} ({durationStr})</span>
             </div>
-            <div class="text-right">
-              <div class="text-sm font-medium">{a.planned_start}–{a.planned_end}</div>
-              <div class="mt-1 text-xs text-zinc-500">{a.kind}</div>
+            
+            <div class="px-3 py-3 space-y-2 text-[14px]">
+              {/* Optional Displacement Info (Mocked for demonstration based on screenshot) */}
+              {Math.random() > 0.7 && (
+                <div class="flex items-start gap-2">
+                  <svg class="text-[#4B79A1] mt-0.5 shrink-0" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                  <span class="font-bold text-[#1E3A8A]">15 min (3,8 km)</span>
+                </div>
+              )}
+
+              <div class="flex items-start gap-1">
+                <span class="text-zinc-500 min-w-[70px]">Usuario:</span>
+                <span class="font-bold text-[#1E3A8A] uppercase">{a.user_name}</span>
+              </div>
+              <div class="flex items-start gap-1">
+                <span class="text-zinc-500 min-w-[70px]">Servicio:</span>
+                <span class="font-medium text-zinc-700">SAD PIA atenció personal</span>
+              </div>
+              <div class="flex items-start gap-1">
+                <span class="text-zinc-500 min-w-[70px]">Empleado:</span>
+                <span class="font-bold text-[#1E3A8A] uppercase">{workerName}</span>
+              </div>
             </div>
           </div>
-        </article>
-      ))}
+        );
+      })}
 
       {assignments.results.length === 0 ? (
-        <div class="rounded-2xl border border-dashed border-zinc-300 bg-white p-6 text-sm text-zinc-600">
+        <div class="rounded-xl bg-[#F0F4F8] border border-zinc-100 p-6 text-center text-sm text-zinc-500">
           No tienes servicios asignados este día.
         </div>
       ) : null}
     </div>
-  </section>
+
+    <div class="space-y-1 pt-4 px-1">
+      <div class="flex items-center gap-2">
+        <span class="text-[15px] text-zinc-600">Tiempo servicios:</span>
+        <span class="text-[15px] font-bold text-[#1E3A8A]">{totalServiciosStr}</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-[15px] text-zinc-600">Tiempo actividades:</span>
+        <span class="text-[15px] font-bold text-[#1E3A8A]">{totalActividadesStr}</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-[15px] text-zinc-600">Tiempo desplazamiento:</span>
+        <span class="text-[15px] font-bold text-[#1E3A8A]">{totalDesplazamientoStr}</span>
+      </div>
+    </div>
+
+    <div class="flex items-start gap-3 rounded-lg border border-zinc-200 bg-white p-3 shadow-sm mt-4">
+      <div class="text-zinc-500 mt-0.5">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+      </div>
+      <p class="text-[13px] text-zinc-600 italic leading-snug">
+        Este resumen de horas no contiene las horas de ausencia remuneradas
+      </p>
+    </div>
+  </div>
 </WorkerLayout>
 

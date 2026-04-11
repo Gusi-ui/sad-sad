@@ -12,11 +12,11 @@ const { title } = Astro.props;
 <html lang="es">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
     <title>{title}</title>
   </head>
-  <body class="min-h-dvh bg-zinc-50 text-zinc-900 antialiased">
-    <div class="mx-auto w-full max-w-xl px-4 py-6">
+  <body class="min-h-dvh bg-[#F5F5F5] text-zinc-900 antialiased font-sans">
+    <div class="mx-auto w-full max-w-md bg-white min-h-dvh shadow-xl">
       <slot />
     </div>
   </body>

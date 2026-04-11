@@ -22,13 +22,17 @@ if (Astro.request.method === 'POST') {
     const quotaRaw = String(formData.get('monthlyHoursQuota') ?? '').trim();
     const quotaParsed = quotaRaw === '' ? null : Number(quotaRaw);
     const quotaDb = quotaParsed === null || !Number.isFinite(quotaParsed) ? null : quotaParsed;
+    const preferredWorkerRaw = String(formData.get('preferredWorker') ?? '').trim();
+    const preferredWorkerId = preferredWorkerRaw === '' ? null : preferredWorkerRaw;
+    const preferredWeekendWorkerRaw = String(formData.get('preferredWeekendWorker') ?? '').trim();
+    const preferredWeekendWorkerId = preferredWeekendWorkerRaw === '' ? null : preferredWeekendWorkerRaw;
 
     if (name) {
       await database
         .prepare(
-          `UPDATE service_users SET name = ?, address = ?, notes = ?, active = ?, monthly_hours_quota = ? WHERE id = ?`
+          `UPDATE service_users SET name = ?, address = ?, notes = ?, active = ?, monthly_hours_quota = ?, preferred_worker_id = ?, preferred_weekend_worker_id = ? WHERE id = ?`
         )
-        .bind(name, address || null, notes || null, active, quotaDb, userId)
+        .bind(name, address || null, notes || null, active, quotaDb, preferredWorkerId, preferredWeekendWorkerId, userId)
         .run();
     }
     return Astro.redirect(`/admin/users/${userId}`);
@@ -36,29 +40,56 @@ if (Astro.request.method === 'POST') {
 
   if (action === 'add_template') {
     const kind = String(formData.get('kind') ?? 'laborable');
-    const weekdayRaw = String(formData.get('weekday') ?? '').trim();
-    const weekday = weekdayRaw === '' ? null : Number(weekdayRaw);
     const startTime = String(formData.get('startTime') ?? '').trim();
     const endTime = String(formData.get('endTime') ?? '').trim();
     const requiredWorkerType = String(formData.get('requiredWorkerType') ?? 'laborable');
 
-    const weekdayOk = weekday === null || (Number.isFinite(weekday) && weekday >= 0 && weekday <= 6);
-    if (startTime && endTime && weekdayOk) {
-      await database
-        .prepare(
-          `INSERT INTO service_templates (id, service_user_id, kind, weekday, start_time, end_time, required_worker_type)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
-        )
-        .bind(randomId(), userId, kind, weekday, startTime, endTime, requiredWorkerType)
-        .run();
+    // Manejar múltiples días seleccionados
+    const selectedDays = formData.getAll('weekdays').map(d => Number(d));
+
+    if (startTime && endTime) {
+      if (selectedDays.length > 0) {
+        // Crear una plantilla para cada día seleccionado
+        for (const weekday of selectedDays) {
+          if (Number.isFinite(weekday) && weekday >= 0 && weekday <= 6) {
+            await database
+              .prepare(
+                `INSERT INTO service_templates (id, service_user_id, kind, weekday, start_time, end_time, required_worker_type)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`
+              )
+              .bind(randomId(), userId, kind, weekday, startTime, endTime, requiredWorkerType)
+              .run();
+          }
+        }
+      } else {
+        // Si no se selecciona ningún día, se asume "Todos los días de ese tipo" (weekday = null)
+        await database
+          .prepare(
+            `INSERT INTO service_templates (id, service_user_id, kind, weekday, start_time, end_time, required_worker_type)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`
+          )
+          .bind(randomId(), userId, kind, null, startTime, endTime, requiredWorkerType)
+          .run();
+      }
     }
 
+    return Astro.redirect(`/admin/users/${userId}`);
+  }
+
+  if (action === 'delete_template') {
+    const templateId = String(formData.get('templateId') ?? '').trim();
+    if (templateId) {
+      await database
+        .prepare(`DELETE FROM service_templates WHERE id = ? AND service_user_id = ?`)
+        .bind(templateId, userId)
+        .run();
+    }
     return Astro.redirect(`/admin/users/${userId}`);
   }
 }
 
 const user = await db()
-  .prepare(`SELECT id, name, address, notes, active, monthly_hours_quota FROM service_users WHERE id = ? LIMIT 1`)
+  .prepare(`SELECT id, name, address, notes, active, monthly_hours_quota, preferred_worker_id, preferred_weekend_worker_id FROM service_users WHERE id = ? LIMIT 1`)
   .bind(userId)
   .first<{
     id: string;
@@ -67,9 +98,15 @@ const user = await db()
     notes: string | null;
     active: number;
     monthly_hours_quota: number | null;
+    preferred_worker_id: string | null;
+    preferred_weekend_worker_id: string | null;
   }>();
 
 if (!user) return Astro.redirect('/admin/users');
+
+const workers = await db()
+  .prepare(`SELECT id, name FROM workers WHERE active = 1 ORDER BY name ASC`)
+  .all<{ id: string; name: string }>();
 
 const templates = await db()
   .prepare(
@@ -142,6 +179,27 @@ const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssign
             value={user.monthly_hours_quota ?? ''}
           />
         </label>
+        
+        <label class="block">
+          <span class="text-sm font-medium text-zinc-700">Trabajadora Habitual (L-V)</span>
+          <select class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" name="preferredWorker">
+            <option value="">— Ninguna en específico —</option>
+            {workers.results.map((w) => (
+              <option value={w.id} selected={user.preferred_worker_id === w.id}>{w.name}</option>
+            ))}
+          </select>
+        </label>
+        
+        <label class="block">
+          <span class="text-sm font-medium text-zinc-700">Trabajadora Habitual (Finde/Festivo)</span>
+          <select class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" name="preferredWeekendWorker">
+            <option value="">— Ninguna en específico —</option>
+            {workers.results.map((w) => (
+              <option value={w.id} selected={user.preferred_weekend_worker_id === w.id}>{w.name}</option>
+            ))}
+          </select>
+        </label>
+
         <button class="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">Guardar</button>
       </form>
     </section>
@@ -154,15 +212,45 @@ const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssign
         <label class="block">
           <span class="text-sm font-medium text-zinc-700">Tipo de día</span>
           <select class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="kind">
-            <option value="laborable">Laborable</option>
-            <option value="festivo">Festivo/Finde</option>
+            <option value="laborable">Laborable (Lunes a Viernes)</option>
+            <option value="festivo">Festivo / Fin de semana</option>
           </select>
         </label>
 
-        <label class="block">
-          <span class="text-sm font-medium text-zinc-700">Día de semana (0=Dom…6=Sáb)</span>
-          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="weekday" inputmode="numeric" placeholder="(vacío = aplica)" />
-        </label>
+        <div class="block sm:col-span-2">
+          <span class="text-sm font-medium text-zinc-700 block mb-2">Días de la semana (opcional)</span>
+          <div class="flex flex-wrap gap-2">
+            <label class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-sm hover:bg-zinc-50 cursor-pointer">
+              <input type="checkbox" name="weekdays" value="1" class="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-600" />
+              Lunes
+            </label>
+            <label class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-sm hover:bg-zinc-50 cursor-pointer">
+              <input type="checkbox" name="weekdays" value="2" class="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-600" />
+              Martes
+            </label>
+            <label class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-sm hover:bg-zinc-50 cursor-pointer">
+              <input type="checkbox" name="weekdays" value="3" class="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-600" />
+              Miércoles
+            </label>
+            <label class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-sm hover:bg-zinc-50 cursor-pointer">
+              <input type="checkbox" name="weekdays" value="4" class="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-600" />
+              Jueves
+            </label>
+            <label class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-sm hover:bg-zinc-50 cursor-pointer">
+              <input type="checkbox" name="weekdays" value="5" class="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-600" />
+              Viernes
+            </label>
+            <label class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-sm hover:bg-zinc-50 cursor-pointer">
+              <input type="checkbox" name="weekdays" value="6" class="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-600" />
+              Sábado
+            </label>
+            <label class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-sm hover:bg-zinc-50 cursor-pointer">
+              <input type="checkbox" name="weekdays" value="0" class="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-600" />
+              Domingo
+            </label>
+          </div>
+          <p class="text-xs text-zinc-500 mt-1.5 italic">Si no seleccionas ningún día, se aplicará a <b>todos los días</b> del tipo elegido.</p>
+        </div>
 
         <label class="block">
           <span class="text-sm font-medium text-zinc-700">Inicio</span>
@@ -195,18 +283,40 @@ const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssign
               <th class="px-3 py-2">Inicio</th>
               <th class="px-3 py-2">Fin</th>
               <th class="px-3 py-2">Requiere</th>
+              <th class="px-3 py-2 w-10"></th>
             </tr>
           </thead>
           <tbody class="divide-y divide-zinc-100">
             {templates.results.map((t: TemplateRow) => (
-              <tr>
-                <td class="px-3 py-2">{t.kind}</td>
-                <td class="px-3 py-2">{weekdayLabel(t.weekday)}</td>
-                <td class="px-3 py-2">{t.start_time}</td>
-                <td class="px-3 py-2">{t.end_time}</td>
-                <td class="px-3 py-2">{t.required_worker_type}</td>
+              <tr class="hover:bg-zinc-50 transition-colors">
+                <td class="px-3 py-3">
+                  <span class={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${t.kind === 'laborable' ? 'bg-blue-50 text-blue-700' : 'bg-orange-50 text-orange-700'}`}>
+                    {t.kind === 'laborable' ? 'L-V' : 'Festivo'}
+                  </span>
+                </td>
+                <td class="px-3 py-3 font-medium text-zinc-700">{weekdayLabel(t.weekday)}</td>
+                <td class="px-3 py-3 text-zinc-600">{t.start_time}</td>
+                <td class="px-3 py-3 text-zinc-600">{t.end_time}</td>
+                <td class="px-3 py-3 text-zinc-600 capitalize text-xs">{t.required_worker_type}</td>
+                <td class="px-3 py-3 text-right">
+                  <form method="post" class="inline" onsubmit="return confirm('¿Seguro que deseas eliminar esta plantilla?');">
+                    <input type="hidden" name="_action" value="delete_template" />
+                    <input type="hidden" name="templateId" value={t.id} />
+                    <button type="submit" class="text-zinc-400 hover:text-red-600 transition-colors p-1" title="Eliminar plantilla">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                    </button>
+                  </form>
+                </td>
               </tr>
             ))}
+            
+            {templates.results.length === 0 && (
+              <tr>
+                <td colspan="6" class="px-3 py-6 text-center text-sm text-zinc-500 italic">
+                  Este usuario no tiene plantillas configuradas.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

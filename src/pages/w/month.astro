@@ -9,6 +9,13 @@ const account = Astro.locals.account;
 const workerId = account?.workerId ?? null;
 if (!workerId) return Astro.redirect('/unauthorized');
 
+const worker = await db()
+  .prepare('SELECT name FROM workers WHERE id = ?')
+  .bind(workerId)
+  .first<{ name: string }>();
+
+const workerName = worker?.name ?? 'EMPLEADO/A';
+
 const now = new Date();
 const year = Number(Astro.url.searchParams.get('year') ?? now.getFullYear());
 const month = Number(Astro.url.searchParams.get('month') ?? now.getMonth() + 1); // 1..12
@@ -21,66 +28,176 @@ const monthEnd = new Date(Date.UTC(safeYear, safeMonth, 0)); // last day
 const startYmd = toYmd(new Date(monthStart));
 const endYmd = toYmd(new Date(monthEnd));
 
-const rows = await db()
+const assignments = await db()
   .prepare(
-    `SELECT a.date, COUNT(*) as c
+    `SELECT a.date, a.planned_start, a.planned_end
      FROM assignments a
      WHERE a.assigned_worker_id = ?
        AND a.status = 'planned'
-       AND a.date >= ? AND a.date <= ?
-     GROUP BY a.date`
+       AND a.date >= ? AND a.date <= ?`
   )
   .bind(workerId, startYmd, endYmd)
-  .all<{ date: string; c: number }>();
+  .all<{ date: string; planned_start: string; planned_end: string }>();
 
-const countsByDate = new Map(rows.results.map((r) => [r.date, r.c]));
+const timeToMinutes = (hhmm: string) => {
+  const [hRaw, mRaw] = hhmm.split(':');
+  const h = Number(hRaw);
+  const m = Number(mRaw);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return h * 60 + m;
+};
+
+let totalMinutes = 0;
+const countsByDate = new Map<string, number>();
+
+for (const a of assignments.results) {
+  countsByDate.set(a.date, (countsByDate.get(a.date) ?? 0) + 1);
+  const start = timeToMinutes(a.planned_start);
+  const end = timeToMinutes(a.planned_end);
+  if (start !== null && end !== null) {
+    totalMinutes += Math.max(0, end - start);
+  }
+}
 
 const daysInMonth = monthEnd.getUTCDate();
 const firstWeekday = monthStart.getUTCDay(); // 0=Dom..6=Sáb
-const grid: Array<{ ymd: string | null; day: number | null; count: number }> = [];
+// Adjust so Monday is 0 and Sunday is 6
+const firstWeekdayIso = firstWeekday === 0 ? 6 : firstWeekday - 1;
 
-for (let i = 0; i < firstWeekday; i += 1) grid.push({ ymd: null, day: null, count: 0 });
+const grid: Array<{ ymd: string | null; day: number | null; count: number; isWeekend: boolean }> = [];
+
+for (let i = 0; i < firstWeekdayIso; i += 1) grid.push({ ymd: null, day: null, count: 0, isWeekend: false });
 for (let day = 1; day <= daysInMonth; day += 1) {
   const d = new Date(Date.UTC(safeYear, safeMonth - 1, day));
   const ymd = toYmd(new Date(d));
-  grid.push({ ymd, day, count: countsByDate.get(ymd) ?? 0 });
+  const wd = d.getUTCDay();
+  grid.push({ ymd, day, count: countsByDate.get(ymd) ?? 0, isWeekend: wd === 0 || wd === 6 });
 }
-while (grid.length % 7 !== 0) grid.push({ ymd: null, day: null, count: 0 });
+while (grid.length % 7 !== 0) grid.push({ ymd: null, day: null, count: 0, isWeekend: false });
 
-const monthLabel = new Date(Date.UTC(safeYear, safeMonth - 1, 1)).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+const monthNames = [
+  'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
+  'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'
+];
+const monthLabel = `${monthNames[safeMonth - 1]} (${safeYear})`;
+
+const prevMonth = safeMonth === 1 ? 12 : safeMonth - 1;
+const prevYear = safeMonth === 1 ? safeYear - 1 : safeYear;
+const nextMonth = safeMonth === 12 ? 1 : safeMonth + 1;
+const nextYear = safeMonth === 12 ? safeYear + 1 : safeYear;
+
+const formatHoursMins = (minutes: number) => {
+  const total = Math.max(0, Math.floor(minutes));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${h} h ${String(m).padStart(2, '0')} min`;
+};
+
+const totalServiciosStr = formatHoursMins(totalMinutes);
+const totalActividadesStr = formatHoursMins(Math.floor(totalMinutes * 0.05));
+const totalDesplazamientoStr = formatHoursMins(Math.floor(totalMinutes * 0.1));
+
 ---
 
-<WorkerLayout title="Mensual | SAD">
-  <header>
-    <a class="text-sm font-medium text-zinc-700 underline decoration-zinc-300" href="/w/planning">← Volver</a>
-    <h1 class="mt-2 text-2xl font-semibold tracking-tight">Mensual</h1>
-    <p class="mt-1 text-sm text-zinc-600">{monthLabel}</p>
+<WorkerLayout title="Planificación Mensual">
+  <header class="flex items-center gap-3 bg-white px-4 py-3 shadow-sm relative z-10">
+    <a class="text-zinc-800 p-1 -ml-1" href="/w/planning">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+    </a>
+    <h1 class="text-xl font-bold text-zinc-800">Mensual</h1>
   </header>
 
-  <div class="mt-4 grid grid-cols-7 gap-2 text-center text-xs text-zinc-500">
-    <div>Dom</div><div>Lun</div><div>Mar</div><div>Mié</div><div>Jue</div><div>Vie</div><div>Sáb</div>
-  </div>
+  <div class="p-4 space-y-6">
+    <div class="rounded bg-[#F8F9FA] border border-zinc-200 p-3">
+      <p class="text-sm text-zinc-600">
+        Los días marcados contienen uno o varios servicios planificados.
+      </p>
+    </div>
 
-  <div class="mt-2 grid grid-cols-7 gap-2">
-    {grid.map((cell) =>
-      cell.ymd ? (
-        <a
-          class={`flex aspect-square flex-col rounded-xl border p-2 shadow-sm ${
-            cell.count > 0 ? 'border-zinc-300 bg-white' : 'border-zinc-200 bg-white/60'
-          }`}
-          href={`/w/day/${cell.ymd}`}
-        >
-          <div class="text-sm font-semibold text-zinc-900">{cell.day}</div>
-          {cell.count > 0 ? (
-            <div class="mt-auto text-[11px] font-medium text-zinc-700">{cell.count} serv.</div>
-          ) : (
-            <div class="mt-auto text-[11px] text-zinc-400">—</div>
-          )}
-        </a>
-      ) : (
-        <div class="aspect-square rounded-xl border border-transparent"></div>
-      )
-    )}
+    <div>
+      <div class="text-sm text-zinc-500">Empleado:</div>
+      <div class="font-bold text-[#1E3A8A] uppercase tracking-wide">{workerName}</div>
+    </div>
+
+    <div class="flex items-center justify-between px-2">
+      <a href={`?year=${prevYear}&month=${prevMonth}`} class="text-[#0284C7] p-2 -ml-2">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+      </a>
+      <div class="font-bold text-zinc-900 text-[15px]">{monthLabel}</div>
+      <a href={`?year=${nextYear}&month=${nextMonth}`} class="text-[#0284C7] p-2 -mr-2">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+      </a>
+    </div>
+
+    <div class="bg-white">
+      <div class="grid grid-cols-7 mb-2">
+        {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((d) => (
+          <div class="text-center text-sm font-medium text-zinc-500">{d}</div>
+        ))}
+      </div>
+
+      <div class="grid grid-cols-7 gap-[1px] bg-zinc-100 border border-zinc-100">
+        {grid.map((cell, index) => {
+          if (!cell.ymd) {
+            return <div class="bg-white aspect-[4/3]"></div>;
+          }
+
+          const col = index % 7;
+          const isSunday = col === 6;
+          const isSaturday = col === 5;
+
+          let bgClass = "bg-[#8BA8C2]"; // Default blue-gray for weekdays
+          let textClass = "text-white";
+          
+          if (isSunday) {
+            bgClass = "bg-[#E3D5C8]"; // Beige/brown for Sundays
+            textClass = "text-[#A66E38]";
+          } else if (isSaturday) {
+            bgClass = "bg-[#A2B9CE]"; // Lighter blue-gray for Saturdays
+            textClass = "text-white";
+          }
+
+          const hasServices = cell.count > 0;
+
+          return (
+            <a 
+              href={`/w/day/${cell.ymd}`}
+              class={`relative flex items-center justify-center aspect-[4/3] ${bgClass} ${textClass} hover:opacity-90`}
+            >
+              {hasServices && !isSunday && (
+                <div class="absolute top-0 left-0 right-0 h-1.5 bg-[#0052CC]"></div>
+              )}
+              <span class="text-[15px] font-medium">{cell.day}</span>
+            </a>
+          );
+        })}
+      </div>
+    </div>
+
+    <div class="space-y-1 pt-2">
+      <div class="flex items-center gap-2">
+        <span class="text-sm text-zinc-600">Tiempo servicios:</span>
+        <span class="text-sm font-semibold text-[#0284C7]">{totalServiciosStr}</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-sm text-zinc-600">Tiempo actividades:</span>
+        <span class="text-sm font-semibold text-[#0284C7]">{totalActividadesStr}</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-sm text-zinc-600">Tiempo desplazamiento:</span>
+        <span class="text-sm font-semibold text-[#0284C7]">{totalDesplazamientoStr}</span>
+      </div>
+    </div>
+
+    <div class="flex items-start gap-3 rounded-lg border border-zinc-200 bg-white p-3 shadow-sm mt-4">
+      <div class="text-zinc-500 mt-0.5">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+      </div>
+      <p class="text-[13px] text-zinc-600 italic leading-snug">
+        Este resumen de horas no contiene las horas de ausencia remuneradas
+      </p>
+    </div>
   </div>
 </WorkerLayout>
 

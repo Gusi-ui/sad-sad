@@ -61,6 +61,43 @@ if (Astro.request.method === 'POST') {
     return Astro.redirect(`/admin/schedule/week?week=${weekKey}`);
   }
 
+  if (action === 'auto_assign') {
+    const unassigned = await database
+      .prepare(`SELECT id, date, kind, planned_start, planned_end, service_user_id FROM assignments WHERE assigned_worker_id IS NULL AND date >= ? AND date <= ?`)
+      .bind(toYmd(new Date(weekDates[0])), toYmd(new Date(weekDates[6])))
+      .all<{ id: string; date: string; kind: string; planned_start: string; planned_end: string; service_user_id: string }>();
+
+    const allWorkers = await database.prepare(`SELECT id FROM workers WHERE active = 1`).all<{ id: string }>();
+    
+    // Para MVP rápido: obtenemos las preferencias de los usuarios para la autoasignación rápida
+    const userPrefs = await database
+      .prepare(`SELECT id, preferred_worker_id, preferred_weekend_worker_id FROM service_users`)
+      .all<{ id: string; preferred_worker_id: string | null; preferred_weekend_worker_id: string | null }>();
+      
+    const prefsMap = new Map();
+    for (const p of userPrefs.results) {
+      prefsMap.set(p.id, p);
+    }
+
+    if (allWorkers.results.length > 0) {
+      for (const a of unassigned.results) {
+        let assignedWorker = allWorkers.results[0].id; // Fallback
+        
+        const pref = prefsMap.get(a.service_user_id);
+        if (pref) {
+          if (a.kind === 'laborable' && pref.preferred_worker_id) {
+            assignedWorker = pref.preferred_worker_id;
+          } else if (a.kind !== 'laborable') {
+             assignedWorker = pref.preferred_weekend_worker_id || pref.preferred_worker_id || assignedWorker;
+          }
+        }
+        
+        await database.prepare(`UPDATE assignments SET assigned_worker_id = ? WHERE id = ?`).bind(assignedWorker, a.id).run();
+      }
+    }
+    return Astro.redirect(`/admin/schedule/week?week=${weekKey}`);
+  }
+
   const dates = weekDates.map((d) => ({ d, ymd: toYmd(new Date(d)) }));
 
   const users = await database
@@ -192,24 +229,18 @@ const getWorkerAvailability = (workerId: string, date: string, start: number, en
   return { available: true as const };
 };
 
-const weekStartYmd = toYmd(new Date(weekDates[0]));
-const historyStartYmd = toYmd(addDaysUtc(new Date(weekDates[0]), -56)); // 8 semanas
-
 const habitualRows = await database
   .prepare(
-    `SELECT service_user_id, assigned_worker_id, COUNT(*) as c
-     FROM assignments
-     WHERE assigned_worker_id IS NOT NULL
-       AND date >= ? AND date < ?
-     GROUP BY service_user_id, assigned_worker_id`
+    `SELECT id, preferred_worker_id, preferred_weekend_worker_id FROM service_users WHERE preferred_worker_id IS NOT NULL OR preferred_weekend_worker_id IS NOT NULL`
   )
-  .bind(historyStartYmd, weekStartYmd)
-  .all<{ service_user_id: string; assigned_worker_id: string; c: number }>();
+  .all<{ id: string; preferred_worker_id: string | null; preferred_weekend_worker_id: string | null }>();
 
-const habitualByUser = new Map<string, { workerId: string; count: number }>();
+const habitualByUser = new Map<string, { weekdayWorkerId: string | null, weekendWorkerId: string | null }>();
 for (const row of habitualRows.results) {
-  const current = habitualByUser.get(row.service_user_id);
-  if (!current || row.c > current.count) habitualByUser.set(row.service_user_id, { workerId: row.assigned_worker_id, count: row.c });
+  habitualByUser.set(row.id, { 
+    weekdayWorkerId: row.preferred_worker_id,
+    weekendWorkerId: row.preferred_weekend_worker_id
+  });
 }
 
 type Candidate = { w: WorkerRow; available: boolean; loadMinutes: number; habitual: boolean };
@@ -223,57 +254,73 @@ const formatMinutes = (minutes: number) => {
 ---
 
 <AppLayout title="Agenda semanal | Admin">
-  <div class="flex items-center justify-between gap-4">
+  <div class="flex items-center justify-between border-b border-zinc-200 pb-4">
     <div>
-      <a class="text-sm font-medium text-zinc-700 underline decoration-zinc-300" href="/admin">← Volver</a>
-      <h1 class="mt-2 text-2xl font-semibold tracking-tight">Agenda semanal</h1>
-      <p class="mt-1 text-sm text-zinc-600">Semana: {weekKey}</p>
+      <div class="flex items-center gap-2">
+        <a class="text-sm font-medium text-zinc-500 hover:text-zinc-800 transition-colors" href="/admin">Panel de control</a>
+        <span class="text-zinc-400">/</span>
+        <span class="text-sm font-medium text-zinc-800">Agenda</span>
+      </div>
+      <h1 class="mt-2 text-2xl font-bold tracking-tight text-zinc-900">Agenda Semanal</h1>
+      <p class="mt-1 text-sm text-zinc-600">Gestión de cuadrantes para la semana: <span class="font-bold text-zinc-800">{weekKey}</span></p>
     </div>
 
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-3">
       <form method="get" class="flex items-center gap-2">
-        <input class="w-36 rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="week" value={weekKey} />
-        <button class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium">Ir</button>
+        <input class="w-36 rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all" name="week" value={weekKey} />
+        <button class="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50 transition-colors shadow-sm">Ir</button>
       </form>
       <form method="post">
         <input type="hidden" name="_action" value="generate" />
-        <button class="rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white">
-          Generar desde plantillas
+        <button class="flex items-center gap-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 transition-colors px-4 py-2 text-sm font-bold text-white shadow-sm">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+          Generar de plantillas
+        </button>
+      </form>
+      <form method="post">
+        <input type="hidden" name="_action" value="auto_assign" />
+        <button class="flex items-center gap-2 rounded-lg bg-[#0284C7] hover:bg-sky-700 transition-colors px-4 py-2 text-sm font-bold text-white shadow-sm" title="Asigna automáticamente la trabajadora más adecuada a los turnos sin asignar">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><polyline points="16 11 18 13 22 9"></polyline></svg>
+          Auto-asignar vacíos
         </button>
       </form>
     </div>
   </div>
 
-  <section class="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-    <h2 class="text-sm font-semibold">Servicios ({assignments.results.length})</h2>
-    <div class="mt-4 overflow-x-auto">
+  <section class="mt-6 rounded-2xl border border-zinc-200 bg-white shadow-sm overflow-hidden">
+    <div class="p-6 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/50">
+      <h2 class="text-lg font-bold text-zinc-900">Servicios Planificados ({assignments.results.length})</h2>
+    </div>
+    <div class="overflow-x-auto">
       <table class="w-full min-w-[900px] text-left text-sm">
-        <thead class="text-xs uppercase text-zinc-500">
+        <thead class="bg-zinc-50 text-xs uppercase text-zinc-500 border-b border-zinc-200">
           <tr>
-            <th class="px-3 py-2">Fecha</th>
-            <th class="px-3 py-2">Usuario</th>
-            <th class="px-3 py-2">Tipo</th>
-            <th class="px-3 py-2">Inicio</th>
-            <th class="px-3 py-2">Fin</th>
-            <th class="px-3 py-2">Requiere</th>
-            <th class="px-3 py-2">Asignación</th>
+            <th class="px-6 py-3 font-semibold">Fecha</th>
+            <th class="px-6 py-3 font-semibold">Usuario/a</th>
+            <th class="px-6 py-3 font-semibold">Tipo</th>
+            <th class="px-6 py-3 font-semibold">Horario</th>
+            <th class="px-6 py-3 font-semibold">Requisito</th>
+            <th class="px-6 py-3 font-semibold">Asignación</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-zinc-100">
           {assignments.results.map((a: AssignmentRow) => (
-            <tr class={a.assigned_worker_id ? '' : 'bg-amber-50/40'}>
-              <td class="px-3 py-2">{a.date}</td>
-              <td class="px-3 py-2">{a.user_name}</td>
-              <td class="px-3 py-2">{a.kind}</td>
-              <td class="px-3 py-2">{a.planned_start}</td>
-              <td class="px-3 py-2">{a.planned_end}</td>
-              <td class="px-3 py-2">{a.required_worker_type ?? '—'}</td>
-              <td class="px-3 py-2">
+            <tr class={`${a.assigned_worker_id ? 'hover:bg-zinc-50/50' : 'bg-amber-50/30 hover:bg-amber-50/60'} transition-colors`}>
+              <td class="px-6 py-4 font-medium text-zinc-700">{a.date}</td>
+              <td class="px-6 py-4 font-bold text-emerald-600 uppercase">{a.user_name}</td>
+              <td class="px-6 py-4">
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-zinc-100 text-zinc-600 capitalize">
+                  {a.kind}
+                </span>
+              </td>
+              <td class="px-6 py-4 font-bold text-[#4B79A1]">{a.planned_start} - {a.planned_end}</td>
+              <td class="px-6 py-4 text-zinc-500 text-xs capitalize">{a.required_worker_type ?? 'Cualquiera'}</td>
+              <td class="px-6 py-4">
                 {(() => {
                   const start = timeToMinutes(a.planned_start);
                   const end = timeToMinutes(a.planned_end);
                   if (start === null || end === null) {
-                    return <span class="text-xs text-zinc-600">Horas inválidas</span>;
+                    return <span class="text-xs text-red-500 font-bold">Horas inválidas</span>;
                   }
 
                   const candidates = workers.results
@@ -281,7 +328,18 @@ const formatMinutes = (minutes: number) => {
                     .map((w: WorkerRow) => {
                       const availability = getWorkerAvailability(w.id, a.date, start, end);
                       const loadMinutes = workerLoadMinutes.get(w.id) ?? 0;
-                      const habitualWorkerId = habitualByUser.get(a.service_user_id)?.workerId ?? null;
+                      
+                      const userPrefs = habitualByUser.get(a.service_user_id);
+                      let habitualWorkerId = null;
+                      if (userPrefs) {
+                        if (a.kind === 'laborable') {
+                          habitualWorkerId = userPrefs.weekdayWorkerId;
+                        } else {
+                          // festivo o fin_semana
+                          habitualWorkerId = userPrefs.weekendWorkerId || userPrefs.weekdayWorkerId; // fallback to weekday if no weekend specific
+                        }
+                      }
+                      
                       const habitual = habitualWorkerId === w.id;
                       const candidate: Candidate = { w, available: availability.available, loadMinutes, habitual };
                       return candidate;
@@ -300,7 +358,7 @@ const formatMinutes = (minutes: number) => {
                     <form method="post" class="flex items-center gap-2">
                       <input type="hidden" name="_action" value="assign" />
                       <input type="hidden" name="assignmentId" value={a.id} />
-                      <select class="min-w-64 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm" name="workerId">
+                      <select class={`min-w-64 rounded-lg border ${a.assigned_worker_id ? 'border-zinc-300' : 'border-amber-300 bg-amber-50 text-amber-900'} px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all`} name="workerId">
                         <option value="">— Sin asignar —</option>
                         {candidates.map(({ w, available, habitual }: Candidate) => (
                           <option value={w.id} selected={a.assigned_worker_id === w.id || (!a.assigned_worker_id && suggested === w.id)}>
@@ -309,16 +367,25 @@ const formatMinutes = (minutes: number) => {
                           </option>
                         ))}
                       </select>
-                      <button class="rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white">Guardar</button>
-                      <span class="text-xs text-zinc-600">
-                        {a.worker_name ? `Actual: ${a.worker_name}` : 'Sugerida: primera disponible'}
-                      </span>
+                      <button class="rounded-lg bg-zinc-900 hover:bg-zinc-800 transition-colors px-3 py-2 text-sm font-medium text-white shadow-sm">Guardar</button>
+                      
+                      {!a.assigned_worker_id && (
+                        <span class="ml-2 flex h-2 w-2 rounded-full bg-amber-500" title="Requiere asignación"></span>
+                      )}
                     </form>
                   );
                 })()}
               </td>
             </tr>
           ))}
+          
+          {assignments.results.length === 0 && (
+            <tr>
+              <td colspan="6" class="px-6 py-8 text-center text-zinc-500 italic">
+                No hay servicios planificados para esta semana. Genera el cuadrante usando las plantillas.
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
     </div>

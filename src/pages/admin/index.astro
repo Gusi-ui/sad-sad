@@ -3,36 +3,52 @@ import AppLayout from '../../layouts/AppLayout.astro';
 const account = Astro.locals.account;
 ---
 
-<AppLayout title="Admin | SAD">
+<AppLayout title="Admin | SAD-SAD">
   <div class="flex items-center justify-between">
     <div>
-      <h1 class="text-2xl font-semibold tracking-tight">Panel de administración</h1>
-      <p class="mt-1 text-sm text-zinc-600">Sesión: {account?.email}</p>
+      <h1 class="text-3xl font-bold tracking-tight text-zinc-900">Panel de Control SAD-SAD</h1>
+      <p class="mt-1 text-sm text-zinc-600">Sesión iniciada como: <span class="font-medium text-zinc-800">{account?.email}</span></p>
     </div>
 
     <form method="post" action="/api/auth/logout">
-      <button class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-900">
+      <button class="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 hover:text-red-600 transition-colors shadow-sm">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
         Cerrar sesión
       </button>
     </form>
   </div>
 
-  <div class="mt-6 grid gap-4 md:grid-cols-3">
-    <a class="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm hover:border-zinc-300" href="/admin/workers">
-      <div class="text-sm font-medium">Trabajadoras</div>
-      <div class="mt-1 text-xs text-zinc-600">Alta, contratos y resumen semanal</div>
+  <div class="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+    <a class="group rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm hover:border-[#0284C7] hover:shadow-md transition-all" href="/admin/workers">
+      <div class="mb-4 inline-flex rounded-xl bg-blue-50 p-3 text-[#0284C7] group-hover:scale-110 transition-transform">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+      </div>
+      <div class="text-lg font-bold text-zinc-900">Trabajadoras</div>
+      <div class="mt-1 text-sm text-zinc-500">Altas, cuentas de app, contratos y resumen de horas.</div>
     </a>
-    <a class="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm hover:border-zinc-300" href="/admin/users">
-      <div class="text-sm font-medium">Usuarios</div>
-      <div class="mt-1 text-xs text-zinc-600">Horarios y planificación</div>
+
+    <a class="group rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm hover:border-[#0284C7] hover:shadow-md transition-all" href="/admin/users">
+      <div class="mb-4 inline-flex rounded-xl bg-emerald-50 p-3 text-emerald-600 group-hover:scale-110 transition-transform">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+      </div>
+      <div class="text-lg font-bold text-zinc-900">Usuarios/as</div>
+      <div class="mt-1 text-sm text-zinc-500">Beneficiarios del servicio, cuotas y plantillas maestras.</div>
     </a>
-    <a class="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm hover:border-zinc-300" href="/admin/holidays">
-      <div class="text-sm font-medium">Festivos</div>
-      <div class="mt-1 text-xs text-zinc-600">Calendario por año</div>
+
+    <a class="group rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm hover:border-[#0284C7] hover:shadow-md transition-all" href="/admin/schedule/week">
+      <div class="mb-4 inline-flex rounded-xl bg-indigo-50 p-3 text-indigo-600 group-hover:scale-110 transition-transform">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line><path d="M8 14h.01"></path><path d="M12 14h.01"></path><path d="M16 14h.01"></path><path d="M8 18h.01"></path><path d="M12 18h.01"></path><path d="M16 18h.01"></path></svg>
+      </div>
+      <div class="text-lg font-bold text-zinc-900">Agenda Semanal</div>
+      <div class="mt-1 text-sm text-zinc-500">Generar cuadrantes, asignar turnos y gestionar huecos.</div>
     </a>
-    <a class="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm hover:border-zinc-300" href="/admin/schedule/week">
-      <div class="text-sm font-medium">Agenda semanal</div>
-      <div class="mt-1 text-xs text-zinc-600">Generar desde plantillas</div>
+
+    <a class="group rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm hover:border-[#0284C7] hover:shadow-md transition-all" href="/admin/holidays">
+      <div class="mb-4 inline-flex rounded-xl bg-orange-50 p-3 text-orange-600 group-hover:scale-110 transition-transform">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>
+      </div>
+      <div class="text-lg font-bold text-zinc-900">Festivos</div>
+      <div class="mt-1 text-sm text-zinc-500">Gestión de calendario de festivos locales y nacionales.</div>
     </a>
   </div>
 </AppLayout>
