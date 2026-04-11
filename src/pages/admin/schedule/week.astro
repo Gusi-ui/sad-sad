@@ -270,7 +270,7 @@ for (const row of habitualRows.results) {
   });
 }
 
-type Candidate = { w: WorkerRow; available: boolean; loadMinutes: number; habitual: boolean };
+type Candidate = { w: WorkerRow; available: boolean; loadMinutes: number; habitual: boolean; compatible: boolean };
 
 const formatMinutes = (minutes: number) => {
   const total = Math.max(0, Math.floor(minutes));
@@ -393,7 +393,6 @@ const formatMinutes = (minutes: number) => {
                   }
 
                   const candidates = workers.results
-                    .filter((w: WorkerRow) => matchesWorkerType(a.required_worker_type, w.worker_type))
                     .map((w: WorkerRow) => {
                       const availability = getWorkerAvailability(w.id, a.date, start, end);
                       const loadMinutes = workerLoadMinutes.get(w.id) ?? 0;
@@ -410,18 +409,22 @@ const formatMinutes = (minutes: number) => {
                       }
                       
                       const habitual = habitualWorkerId === w.id;
-                      const candidate: Candidate = { w, available: availability.available, loadMinutes, habitual };
+                      const compatible = matchesWorkerType(a.required_worker_type, w.worker_type);
+                      const candidate: Candidate = { w, available: availability.available, loadMinutes, habitual, compatible };
                       return candidate;
                     })
                     .sort(
                       (x: Candidate, y: Candidate) =>
+                        Number(y.compatible) - Number(x.compatible) ||
                         Number(y.available) - Number(x.available) ||
                         Number(y.habitual) - Number(x.habitual) ||
                         x.loadMinutes - y.loadMinutes ||
                         x.w.name.localeCompare(y.w.name)
                     );
 
-                  const suggested = candidates.find((c: Candidate) => c.available)?.w.id ?? '';
+                  const suggested = candidates.find((c: Candidate) => c.available && c.compatible)?.w.id
+                    ?? candidates.find((c: Candidate) => c.available)?.w.id
+                    ?? '';
 
                   return (
                     <form method="post" class="flex items-center gap-2">
@@ -429,10 +432,10 @@ const formatMinutes = (minutes: number) => {
                       <input type="hidden" name="assignmentId" value={a.id} />
                       <select class={`min-w-64 rounded-lg border ${a.assigned_worker_id ? 'border-zinc-300' : 'border-amber-300 bg-amber-50 text-amber-900'} px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all`} name="workerId">
                         <option value="">— Sin asignar —</option>
-                        {candidates.map(({ w, available, habitual }: Candidate) => (
+                        {candidates.map(({ w, available, habitual, compatible }: Candidate) => (
                           <option value={w.id} selected={a.assigned_worker_id === w.id || (!a.assigned_worker_id && suggested === w.id)}>
                             {habitual ? '★ ' : ''}
-                            {w.name} ({formatMinutes(workerLoadMinutes.get(w.id) ?? 0)}) {available ? '' : '(solape)'}
+                            {w.name} ({formatMinutes(workerLoadMinutes.get(w.id) ?? 0)}) {compatible ? '' : '(tipo no compatible)'} {available ? '' : '(solape)'}
                           </option>
                         ))}
                       </select>

@@ -163,6 +163,14 @@ if (Astro.request.method === 'POST') {
     }
     return Astro.redirect(`/admin/users/${userId}`);
   }
+
+  if (action === 'normalize_festive_template_requirements') {
+    await database
+      .prepare(`UPDATE service_templates SET required_worker_type = 'festivo' WHERE service_user_id = ? AND kind = 'festivo' AND required_worker_type = 'laborable'`)
+      .bind(userId)
+      .run();
+    return Astro.redirect(`/admin/users/${userId}`);
+  }
 }
 
 const user = await db()
@@ -198,6 +206,11 @@ const templates = await db()
 
 const orphanAssignments = await db()
   .prepare(`SELECT COUNT(*) AS c FROM assignments WHERE service_user_id = ? AND template_id IS NULL AND source = 'manual' AND status != 'done'`)
+  .bind(userId)
+  .first<{ c: number }>();
+
+const wrongFestiveRequirement = await db()
+  .prepare(`SELECT COUNT(*) AS c FROM service_templates WHERE service_user_id = ? AND kind = 'festivo' AND required_worker_type = 'laborable'`)
   .bind(userId)
   .first<{ c: number }>();
 
@@ -311,13 +324,21 @@ const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssign
             </button>
           </form>
         )}
+        {((wrongFestiveRequirement?.c ?? 0) > 0) && (
+          <form method="post">
+            <input type="hidden" name="_action" value="normalize_festive_template_requirements" />
+            <button class="rounded-lg border border-orange-300 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-800 hover:bg-orange-100">
+              Corregir {wrongFestiveRequirement?.c ?? 0} plantillas festivas
+            </button>
+          </form>
+        )}
       </div>
 
       <form method="post" class="mt-4 grid gap-4 sm:grid-cols-2">
         <input type="hidden" name="_action" value="add_template" />
         <label class="block">
           <span class="text-sm font-medium text-zinc-700">Tipo de día</span>
-          <select class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="kind">
+          <select class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="kind" onchange="const req=this.form?.querySelector('[name=requiredWorkerType]'); if(req){ if(this.value==='festivo' && req.value==='laborable') req.value='festivo'; if(this.value==='laborable' && req.value==='festivo') req.value='laborable'; }">
             <option value="laborable">Laborable (Lunes a Viernes)</option>
             <option value="festivo">Festivo / Fin de semana</option>
           </select>
@@ -403,7 +424,10 @@ const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssign
                 <td class="px-3 py-3 font-medium text-zinc-700">{weekdayLabel(t.weekday)}</td>
                 <td class="px-3 py-3 text-zinc-600">{t.start_time}</td>
                 <td class="px-3 py-3 text-zinc-600">{t.end_time}</td>
-                <td class="px-3 py-3 text-zinc-600 capitalize text-xs">{t.required_worker_type}</td>
+                <td class={`px-3 py-3 capitalize text-xs ${t.kind === 'festivo' && t.required_worker_type === 'laborable' ? 'text-amber-700 font-semibold' : 'text-zinc-600'}`}>
+                  {t.required_worker_type}
+                  {t.kind === 'festivo' && t.required_worker_type === 'laborable' ? ' (revisar)' : ''}
+                </td>
                 <td class="px-3 py-3 text-right">
                   <form method="post" class="inline">
                     <input type="hidden" name="_action" value="delete_template" />
