@@ -1,0 +1,106 @@
+---
+import AppLayout from '../../../layouts/AppLayout.astro';
+import { db } from '../../../lib/db';
+import { randomId } from '../../../lib/crypto';
+
+if (Astro.request.method === 'POST') {
+  const formData = await Astro.request.formData();
+  const action = formData.get('_action');
+
+  if (action === 'create_user') {
+    const name = String(formData.get('name') ?? '').trim();
+    const address = String(formData.get('address') ?? '').trim();
+    const phone = String(formData.get('phone') ?? '').trim();
+    const notes = String(formData.get('notes') ?? '').trim();
+    const preferredWorkerRaw = String(formData.get('preferredWorker') ?? '').trim();
+    const preferredWorkerId = preferredWorkerRaw === '' ? null : preferredWorkerRaw;
+    const preferredWeekendWorkerRaw = String(formData.get('preferredWeekendWorker') ?? '').trim();
+    const preferredWeekendWorkerId = preferredWeekendWorkerRaw === '' ? null : preferredWeekendWorkerRaw;
+
+    if (name) {
+      await db()
+        .prepare(`INSERT INTO service_users (id, name, address, phone, notes, preferred_worker_id, preferred_weekend_worker_id) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .bind(randomId(), name, address || null, phone || null, notes || null, preferredWorkerId, preferredWeekendWorkerId)
+        .run();
+      return Astro.redirect('/admin/users');
+    }
+  }
+}
+
+const workers = await db()
+  .prepare(`SELECT id, name FROM workers WHERE active = 1 ORDER BY name ASC`)
+  .all<{ id: string; name: string }>();
+---
+
+<AppLayout title="Nuevo Usuario/a | Admin">
+  <div class="flex items-center justify-between border-b border-zinc-200 pb-4">
+    <div>
+      <div class="flex items-center gap-2">
+        <a class="text-sm font-medium text-zinc-500 hover:text-zinc-800 transition-colors" href="/admin">Panel de control</a>
+        <span class="text-zinc-400">/</span>
+        <a class="text-sm font-medium text-zinc-500 hover:text-zinc-800 transition-colors" href="/admin/users">Usuarios/as</a>
+        <span class="text-zinc-400">/</span>
+        <span class="text-sm font-medium text-zinc-800">Nuevo</span>
+      </div>
+      <h1 class="mt-2 text-2xl font-bold tracking-tight text-zinc-900">Alta de Nuevo/a Usuario/a</h1>
+    </div>
+    <a class="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50 transition-colors shadow-sm" href="/admin/users">
+      Volver
+    </a>
+  </div>
+
+  <div class="mt-6 max-w-2xl">
+    <section class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+      <h2 class="text-lg font-bold text-zinc-900 border-b border-zinc-100 pb-3 mb-4">Datos del Usuario/a</h2>
+      <form method="post" class="space-y-4">
+        <input type="hidden" name="_action" value="create_user" />
+        
+        <label class="block">
+          <span class="text-sm font-semibold text-zinc-700">Nombre completo</span>
+          <input class="mt-1.5 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" name="name" placeholder="Ej: Dolores Góngora Orive" required />
+        </label>
+
+        <label class="block">
+          <span class="text-sm font-semibold text-zinc-700">Teléfono (opcional)</span>
+          <input class="mt-1.5 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" name="phone" type="tel" placeholder="Ej: 600 123 456" />
+        </label>
+
+        <label class="block">
+          <span class="text-sm font-semibold text-zinc-700">Dirección (opcional)</span>
+          <input class="mt-1.5 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" name="address" placeholder="Ej: Calle Mayor 12, 3ºA" />
+        </label>
+
+        <label class="block">
+          <span class="text-sm font-semibold text-zinc-700">Notas / Observaciones (opcional)</span>
+          <textarea class="mt-1.5 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" name="notes" rows="3" placeholder="Información relevante sobre el usuario..."></textarea>
+        </label>
+
+        <label class="block">
+          <span class="text-sm font-semibold text-zinc-700">Trabajadora Habitual (L-V)</span>
+          <select class="mt-1.5 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" name="preferredWorker">
+            <option value="">— Ninguna en específico —</option>
+            {workers.results.map((w) => (
+              <option value={w.id}>{w.name}</option>
+            ))}
+          </select>
+        </label>
+        
+        <label class="block">
+          <span class="text-sm font-semibold text-zinc-700">Trabajadora Habitual (Finde/Festivo)</span>
+          <select class="mt-1.5 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" name="preferredWeekendWorker">
+            <option value="">— Ninguna en específico —</option>
+            {workers.results.map((w) => (
+              <option value={w.id}>{w.name}</option>
+            ))}
+          </select>
+        </label>
+
+        <div class="pt-2">
+          <button class="inline-flex w-full items-center justify-center rounded-lg bg-emerald-600 hover:bg-emerald-700 transition-colors px-4 py-2.5 text-sm font-bold text-white shadow-sm">
+            Registrar usuario/a
+          </button>
+        </div>
+      </form>
+    </section>
+  </div>
+</AppLayout>

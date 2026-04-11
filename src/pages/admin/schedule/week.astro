@@ -15,12 +15,6 @@ const database = db();
 
 const holidayScopes = ['national', 'catalonia', 'barcelona', 'mataro'] as const;
 
-const addDaysUtc = (date: Date, days: number) => {
-  const d = new Date(date);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d;
-};
-
 const timeToMinutes = (hhmm: string) => {
   const [hRaw, mRaw] = hhmm.split(':');
   const h = Number(hRaw);
@@ -287,9 +281,20 @@ const formatMinutes = (minutes: number) => {
     </div>
   </div>
 
+  <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl">
+    <div class="relative">
+      <svg class="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+      <input type="text" id="filter-user" class="w-full rounded-lg border border-zinc-300 bg-white py-2 pl-9 pr-4 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all" placeholder="Filtrar por Usuario/a..." autocomplete="off" />
+    </div>
+    <div class="relative">
+      <svg class="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+      <input type="text" id="filter-worker" class="w-full rounded-lg border border-zinc-300 bg-white py-2 pl-9 pr-4 text-sm shadow-sm focus:border-[#0284C7] focus:outline-none focus:ring-1 focus:ring-[#0284C7] transition-all" placeholder="Filtrar por Trabajadora asignada..." autocomplete="off" />
+    </div>
+  </div>
+
   <section class="mt-6 rounded-2xl border border-zinc-200 bg-white shadow-sm overflow-hidden">
     <div class="p-6 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/50">
-      <h2 class="text-lg font-bold text-zinc-900">Servicios Planificados ({assignments.results.length})</h2>
+      <h2 class="text-lg font-bold text-zinc-900" id="assignments-count">Servicios Planificados ({assignments.results.length})</h2>
     </div>
     <div class="overflow-x-auto">
       <table class="w-full min-w-[900px] text-left text-sm">
@@ -303,9 +308,9 @@ const formatMinutes = (minutes: number) => {
             <th class="px-6 py-3 font-semibold">Asignación</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-zinc-100">
+        <tbody class="divide-y divide-zinc-100" id="assignments-tbody">
           {assignments.results.map((a: AssignmentRow) => (
-            <tr class={`${a.assigned_worker_id ? 'hover:bg-zinc-50/50' : 'bg-amber-50/30 hover:bg-amber-50/60'} transition-colors`}>
+            <tr class={`assignment-row ${a.assigned_worker_id ? 'hover:bg-zinc-50/50' : 'bg-amber-50/30 hover:bg-amber-50/60'} transition-colors`} data-user={a.user_name.toLowerCase()} data-worker={a.worker_name?.toLowerCase() ?? ''}>
               <td class="px-6 py-4 font-medium text-zinc-700">{a.date}</td>
               <td class="px-6 py-4 font-bold text-emerald-600 uppercase">{a.user_name}</td>
               <td class="px-6 py-4">
@@ -390,5 +395,45 @@ const formatMinutes = (minutes: number) => {
       </table>
     </div>
   </section>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const filterUser = document.getElementById('filter-user') as HTMLInputElement;
+      const filterWorker = document.getElementById('filter-worker') as HTMLInputElement;
+      const rows = document.querySelectorAll('.assignment-row') as NodeListOf<HTMLElement>;
+      const countEl = document.getElementById('assignments-count');
+      
+      const updateFilters = () => {
+        const uQuery = filterUser.value.toLowerCase().trim();
+        const wQuery = filterWorker.value.toLowerCase().trim();
+        
+        let visibleCount = 0;
+        
+        rows.forEach(row => {
+          const rUser = row.dataset.user ?? '';
+          const rWorker = row.dataset.worker ?? '';
+          
+          const matchUser = !uQuery || rUser.includes(uQuery);
+          const matchWorker = !wQuery || rWorker.includes(wQuery);
+          
+          if (matchUser && matchWorker) {
+            row.style.display = '';
+            visibleCount++;
+          } else {
+            row.style.display = 'none';
+          }
+        });
+        
+        if (countEl) {
+          countEl.textContent = `Servicios Planificados (${visibleCount})`;
+        }
+      };
+
+      if (filterUser && filterWorker) {
+        filterUser.addEventListener('input', updateFilters);
+        filterWorker.addEventListener('input', updateFilters);
+      }
+    });
+  </script>
 </AppLayout>
 

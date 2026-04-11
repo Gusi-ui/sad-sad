@@ -23,7 +23,7 @@ if (!email || !password) {
 const textEncoder = new TextEncoder();
 const hashPassword = async (password) => {
   const saltBytes = crypto.getRandomValues(new Uint8Array(16));
-  const iterations = 210_000;
+  const iterations = 100_000;
   const keyMaterial = await crypto.subtle.importKey('raw', textEncoder.encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
   const derivedBits = await crypto.subtle.deriveBits(
     { name: 'PBKDF2', hash: 'SHA-256', salt: saltBytes, iterations },
@@ -43,12 +43,17 @@ const run = async () => {
   const admin = await hashPassword(password);
   const adminAccountId = crypto.randomUUID();
 
+  // Usamos UPSERT (ON CONFLICT) para que si el correo ya existe, simplemente actualice la contraseña.
   const sql = `
   PRAGMA foreign_keys = ON;
   INSERT INTO accounts
     (id, email, password_hash, password_salt, password_iterations, role, worker_id, active)
   VALUES
-    ('${adminAccountId}', '${email}', '${admin.hashBase64}', '${admin.saltBase64}', ${admin.iterations}, 'ADMIN', NULL, 1);
+    ('${adminAccountId}', '${email}', '${admin.hashBase64}', '${admin.saltBase64}', ${admin.iterations}, 'ADMIN', NULL, 1)
+  ON CONFLICT(email) DO UPDATE SET 
+    password_hash = excluded.password_hash,
+    password_salt = excluded.password_salt,
+    password_iterations = excluded.password_iterations;
   `;
 
   const targetFlag = values.remote ? '--remote' : '--local';

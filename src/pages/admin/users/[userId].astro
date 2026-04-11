@@ -89,12 +89,13 @@ if (Astro.request.method === 'POST') {
 }
 
 const user = await db()
-  .prepare(`SELECT id, name, address, notes, active, monthly_hours_quota, preferred_worker_id, preferred_weekend_worker_id FROM service_users WHERE id = ? LIMIT 1`)
+  .prepare(`SELECT id, name, address, phone, notes, active, monthly_hours_quota, preferred_worker_id, preferred_weekend_worker_id FROM service_users WHERE id = ? LIMIT 1`)
   .bind(userId)
   .first<{
     id: string;
     name: string;
     address: string | null;
+    phone: string | null;
     notes: string | null;
     active: number;
     monthly_hours_quota: number | null;
@@ -149,25 +150,21 @@ const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssign
   </div>
 
   <div class="mt-6 grid gap-6 lg:grid-cols-2">
-    <section class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+    <section class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm lg:col-span-2">
       <h2 class="text-sm font-semibold">Datos</h2>
-      <form method="post" class="mt-4 space-y-4">
+      <form method="post" class="mt-4 grid gap-4 sm:grid-cols-2">
         <input type="hidden" name="_action" value="update_user" />
         <label class="block">
           <span class="text-sm font-medium text-zinc-700">Nombre</span>
           <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="name" value={user.name} required />
         </label>
         <label class="block">
-          <span class="text-sm font-medium text-zinc-700">Dirección</span>
-          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="address" value={user.address ?? ''} />
+          <span class="text-sm font-medium text-zinc-700">Teléfono</span>
+          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="phone" value={user.phone ?? ''} type="tel" />
         </label>
         <label class="block">
-          <span class="text-sm font-medium text-zinc-700">Notas</span>
-          <textarea class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="notes" rows="4">{user.notes ?? ''}</textarea>
-        </label>
-        <label class="flex items-center gap-2">
-          <input class="h-4 w-4" type="checkbox" name="active" checked={user.active === 1} />
-          <span class="text-sm text-zinc-700">Activo</span>
+          <span class="text-sm font-medium text-zinc-700">Dirección</span>
+          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="address" value={user.address ?? ''} />
         </label>
         <label class="block">
           <span class="text-sm font-medium text-zinc-700">Horas mensuales aprobadas (ayuntamiento)</span>
@@ -178,6 +175,11 @@ const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssign
             placeholder="Ej. 86"
             value={user.monthly_hours_quota ?? ''}
           />
+        </label>
+        
+        <label class="block sm:col-span-2">
+          <span class="text-sm font-medium text-zinc-700">Notas</span>
+          <textarea class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="notes" rows="2">{user.notes ?? ''}</textarea>
         </label>
         
         <label class="block">
@@ -200,7 +202,13 @@ const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssign
           </select>
         </label>
 
-        <button class="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">Guardar</button>
+        <div class="sm:col-span-2 flex items-center justify-between mt-2 border-t border-zinc-100 pt-4">
+          <label class="flex items-center gap-2">
+            <input class="h-4 w-4" type="checkbox" name="active" checked={user.active === 1} />
+            <span class="text-sm font-medium text-zinc-700">Usuario/a activo</span>
+          </label>
+          <button class="rounded-lg bg-emerald-600 hover:bg-emerald-700 transition-colors px-6 py-2 text-sm font-bold text-white shadow-sm">Guardar cambios</button>
+        </div>
       </form>
     </section>
 

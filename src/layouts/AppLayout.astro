@@ -6,6 +6,8 @@ type Props = {
 };
 
 const { title } = Astro.props;
+const pathname = Astro.url.pathname;
+const isAdminRoute = pathname.startsWith('/admin') && pathname !== '/admin';
 ---
 
 <!doctype html>
@@ -15,8 +17,30 @@ const { title } = Astro.props;
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
   </head>
-  <body class="min-h-dvh bg-zinc-50 text-zinc-900 antialiased">
-    <main class="mx-auto w-full max-w-6xl px-4 py-6">
+  <body class="min-h-dvh bg-zinc-50 text-zinc-900 antialiased flex flex-col">
+    {isAdminRoute && (
+      <header class="sticky top-0 z-50 w-full border-b border-zinc-200 bg-white/80 backdrop-blur-md">
+        <div class="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4">
+          <div class="flex items-center gap-6">
+            <a href="/admin" class="flex items-center gap-2 font-bold text-zinc-900 hover:text-[#0284C7] transition-colors" title="Volver al Inicio">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+              <span>SAD-SAD</span>
+            </a>
+            <nav class="hidden md:flex items-center gap-4 text-sm font-medium">
+              <a href="/admin/workers" class={`hover:text-[#0284C7] transition-colors ${pathname.startsWith('/admin/workers') ? 'text-[#0284C7]' : 'text-zinc-600'}`}>Trabajadoras</a>
+              <a href="/admin/users" class={`hover:text-emerald-600 transition-colors ${pathname.startsWith('/admin/users') ? 'text-emerald-600' : 'text-zinc-600'}`}>Usuarios/as</a>
+              <a href="/admin/schedule/week" class={`hover:text-indigo-600 transition-colors ${pathname.startsWith('/admin/schedule') ? 'text-indigo-600' : 'text-zinc-600'}`}>Agenda</a>
+            </nav>
+          </div>
+          <div class="md:hidden flex items-center gap-3">
+             <a href="/admin/workers" class="text-xs font-medium text-zinc-600 hover:text-[#0284C7]">Trab.</a>
+             <a href="/admin/users" class="text-xs font-medium text-zinc-600 hover:text-emerald-600">Usua.</a>
+             <a href="/admin/schedule/week" class="text-xs font-medium text-zinc-600 hover:text-indigo-600">Agen.</a>
+          </div>
+        </div>
+      </header>
+    )}
+    <main class="mx-auto w-full max-w-6xl px-4 py-6 flex-1">
       <slot />
     </main>
   </body>

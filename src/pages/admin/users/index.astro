@@ -1,181 +1,130 @@
 ---
 import AppLayout from '../../../layouts/AppLayout.astro';
 import { db } from '../../../lib/db';
-import { randomId } from '../../../lib/crypto';
-
-const account = Astro.locals.account;
-
-if (Astro.request.method === 'POST') {
-  const formData = await Astro.request.formData();
-  const name = String(formData.get('name') ?? '').trim();
-  const address = String(formData.get('address') ?? '').trim();
-  const notes = String(formData.get('notes') ?? '').trim();
-  const preferredWorkerRaw = String(formData.get('preferredWorker') ?? '').trim();
-  const preferredWorkerId = preferredWorkerRaw === '' ? null : preferredWorkerRaw;
-  const preferredWeekendWorkerRaw = String(formData.get('preferredWeekendWorker') ?? '').trim();
-  const preferredWeekendWorkerId = preferredWeekendWorkerRaw === '' ? null : preferredWeekendWorkerRaw;
-
-  if (name) {
-    await db()
-      .prepare(`INSERT INTO service_users (id, name, address, notes, preferred_worker_id, preferred_weekend_worker_id) VALUES (?, ?, ?, ?, ?, ?)`)
-      .bind(randomId(), name, address || null, notes || null, preferredWorkerId, preferredWeekendWorkerId)
-      .run();
-    return Astro.redirect('/admin/users');
-  }
-}
 
 const users = await db()
   .prepare(
-    `SELECT u.id, u.name, u.address, u.active, u.created_at, 
+    `SELECT u.id, u.name, u.address, u.phone, u.active, u.created_at, 
             w.name as preferred_worker_name,
             w2.name as preferred_weekend_worker_name
      FROM service_users u
      LEFT JOIN workers w ON w.id = u.preferred_worker_id
      LEFT JOIN workers w2 ON w2.id = u.preferred_weekend_worker_id
-     ORDER BY u.created_at DESC`
+     ORDER BY u.name ASC`
   )
   .all<{ 
     id: string; 
     name: string; 
     address: string | null; 
+    phone: string | null;
     active: number; 
     created_at: string; 
     preferred_worker_name: string | null;
     preferred_weekend_worker_name: string | null;
   }>();
-
-const workers = await db()
-  .prepare(`SELECT id, name FROM workers WHERE active = 1 ORDER BY name ASC`)
-  .all<{ id: string; name: string }>();
-
-type ServiceUserRow = (typeof users.results)[number];
 ---
 
 <AppLayout title="Usuarios | Admin">
   <div class="flex items-center justify-between border-b border-zinc-200 pb-4">
     <div>
-      <div class="flex items-center gap-2">
-        <a class="text-sm font-medium text-zinc-500 hover:text-zinc-800 transition-colors" href="/admin">Panel de control</a>
-        <span class="text-zinc-400">/</span>
-        <span class="text-sm font-medium text-zinc-800">Usuarios/as</span>
-      </div>
-      <h1 class="mt-2 text-2xl font-bold tracking-tight text-zinc-900">Gestión de Usuarios/as</h1>
+      <h1 class="text-2xl font-bold tracking-tight text-zinc-900">Gestión de Usuarios/as</h1>
+      <p class="mt-1 text-sm text-zinc-600">Busca un usuario/a para ver o editar sus datos.</p>
     </div>
-    <a class="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50 transition-colors shadow-sm" href="/admin">
-      Volver
-    </a>
+    <div class="flex items-center gap-3">
+      <a href="/admin/users/new" class="rounded-lg bg-emerald-600 hover:bg-emerald-700 transition-colors px-4 py-2 text-sm font-bold text-white shadow-sm flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Nuevo/a Usuario/a
+      </a>
+    </div>
   </div>
 
-  <div class="mt-6 grid gap-6 lg:grid-cols-3 items-start">
-    <section class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm lg:col-span-1 sticky top-6">
-      <h2 class="text-lg font-bold text-zinc-900 border-b border-zinc-100 pb-3 mb-4">Nuevo/a Usuario/a</h2>
-      <form method="post" class="space-y-4">
-        <label class="block">
-          <span class="text-sm font-semibold text-zinc-700">Nombre completo</span>
-          <input class="mt-1.5 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" name="name" placeholder="Ej: Dolores Góngora Orive" required />
-        </label>
+  <div class="mt-8 max-w-2xl mx-auto">
+    <div class="relative" id="user-search-container">
+      <div class="relative">
+        <svg class="absolute left-4 top-3.5 h-5 w-5 text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input 
+          type="text" 
+          id="user-search-input"
+          class="w-full rounded-2xl border border-zinc-300 bg-white py-3 pl-11 pr-4 text-base shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20 transition-all"
+          placeholder="Buscar usuario/a por nombre..."
+          autocomplete="off"
+        />
+      </div>
 
-        <label class="block">
-          <span class="text-sm font-semibold text-zinc-700">Dirección (opcional)</span>
-          <input class="mt-1.5 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" name="address" placeholder="Ej: Calle Mayor 12, 3ºA" />
-        </label>
+      <div id="user-search-results" class="absolute z-10 mt-2 w-full rounded-xl border border-zinc-200 bg-white py-2 shadow-lg hidden max-h-[400px] overflow-y-auto">
+        <!-- Resultados inyectados por JS -->
+      </div>
+      
+      <div id="user-empty-state" class="mt-12 text-center text-zinc-500">
+        <svg class="mx-auto mb-3 h-12 w-12 text-zinc-300" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+        <p>Empieza a escribir para buscar un usuario/a.</p>
+        <p class="text-sm mt-1">Hay {users.results.length} usuarios/as registrados.</p>
+      </div>
+    </div>
+  </div>
 
-        <label class="block">
-          <span class="text-sm font-semibold text-zinc-700">Notas / Observaciones (opcional)</span>
-          <textarea class="mt-1.5 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" name="notes" rows="3" placeholder="Información relevante sobre el usuario..."></textarea>
-        </label>
+  <script is:inline define:vars={{ usersData: users.results }}>
+    document.addEventListener('DOMContentLoaded', () => {
+      const input = document.getElementById('user-search-input');
+      const resultsContainer = document.getElementById('user-search-results');
+      const emptyState = document.getElementById('user-empty-state');
 
-        <label class="block">
-          <span class="text-sm font-semibold text-zinc-700">Trabajadora Habitual (L-V)</span>
-          <select class="mt-1.5 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" name="preferredWorker">
-            <option value="">— Ninguna en específico —</option>
-            {workers.results.map((w) => (
-              <option value={w.id}>{w.name}</option>
-            ))}
-          </select>
-        </label>
+      if (!input || !resultsContainer || !emptyState) return;
+
+      const renderResults = (query) => {
+        const normalizedQuery = query.toLowerCase().trim();
         
-        <label class="block">
-          <span class="text-sm font-semibold text-zinc-700">Trabajadora Habitual (Finde/Festivo)</span>
-          <select class="mt-1.5 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" name="preferredWeekendWorker">
-            <option value="">— Ninguna en específico —</option>
-            {workers.results.map((w) => (
-              <option value={w.id}>{w.name}</option>
-            ))}
-          </select>
-        </label>
+        if (!normalizedQuery) {
+          resultsContainer.classList.add('hidden');
+          emptyState.classList.remove('hidden');
+          return;
+        }
 
-        <button class="mt-2 inline-flex w-full items-center justify-center rounded-lg bg-emerald-600 hover:bg-emerald-700 transition-colors px-4 py-2.5 text-sm font-bold text-white shadow-sm">
-          Registrar usuario/a
-        </button>
-      </form>
-    </section>
+        const filtered = usersData.filter(u => u.name.toLowerCase().includes(normalizedQuery));
+        
+        resultsContainer.innerHTML = '';
+        emptyState.classList.add('hidden');
 
-    <section class="rounded-2xl border border-zinc-200 bg-white shadow-sm lg:col-span-2 overflow-hidden">
-      <div class="p-6 border-b border-zinc-100 flex items-center justify-between">
-        <h2 class="text-lg font-bold text-zinc-900">Listado Activo ({users.results.length})</h2>
-      </div>
-      <div class="overflow-x-auto">
-        <table class="w-full min-w-[720px] text-left text-sm">
-          <thead class="bg-zinc-50 text-xs uppercase text-zinc-500 border-b border-zinc-200">
-            <tr>
-              <th class="px-6 py-3 font-semibold">Nombre</th>
-              <th class="px-6 py-3 font-semibold">Dirección</th>
-              <th class="px-6 py-3 font-semibold">Trabajadora Asignada</th>
-              <th class="px-6 py-3 font-semibold">Estado</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-zinc-100">
-            {users.results.map((u: ServiceUserRow) => (
-              <tr class="hover:bg-zinc-50/50 transition-colors">
-                <td class="px-6 py-4">
-                  <a class="font-bold text-emerald-600 hover:underline uppercase" href={`/admin/users/${u.id}`}>
-                    {u.name}
-                  </a>
-                </td>
-                <td class="px-6 py-4 text-zinc-600">{u.address ?? <span class="italic text-zinc-400">Sin dirección</span>}</td>
-                <td class="px-6 py-4 text-zinc-600">
-                  <div class="flex flex-col gap-1">
-                    {u.preferred_worker_name ? (
-                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700" title="Laborables">
-                        <span class="w-4 text-center">L-V:</span> {u.preferred_worker_name}
-                      </span>
-                    ) : null}
-                    {u.preferred_weekend_worker_name ? (
-                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-orange-50 text-orange-700" title="Festivos y Fines de semana">
-                        <span class="w-4 text-center">F/F:</span> {u.preferred_weekend_worker_name}
-                      </span>
-                    ) : null}
-                    {!u.preferred_worker_name && !u.preferred_weekend_worker_name && (
-                      <span class="italic text-zinc-400 text-xs">—</span>
-                    )}
-                  </div>
-                </td>
-                <td class="px-6 py-4">
-                  {u.active === 1 ? (
-                    <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
-                      <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> Activo
-                    </span>
-                  ) : (
-                    <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-100 text-zinc-700">
-                      <span class="h-1.5 w-1.5 rounded-full bg-zinc-400"></span> Inactivo
-                    </span>
-                  )}
-                </td>
-              </tr>
-            ))}
+        if (filtered.length === 0) {
+          resultsContainer.innerHTML = '<div class="px-4 py-3 text-sm text-zinc-500">No se encontraron usuarios/as.</div>';
+          resultsContainer.classList.remove('hidden');
+          return;
+        }
 
-            {users.results.length === 0 && (
-              <tr>
-                <td colspan="3" class="px-6 py-8 text-center text-zinc-500 italic">
-                  No hay usuarios/as registrados en el sistema.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  </div>
+        filtered.forEach(user => {
+          const a = document.createElement('a');
+          a.href = `/admin/users/${user.id}`;
+          a.className = 'flex items-center justify-between px-4 py-3 hover:bg-zinc-50 transition-colors border-b border-zinc-100 last:border-0';
+          
+          const statusBadge = user.active 
+            ? `<span class="h-2 w-2 rounded-full bg-emerald-500" title="Activo"></span>`
+            : `<span class="h-2 w-2 rounded-full bg-zinc-400" title="Inactivo"></span>`;
+
+          a.innerHTML = `
+            <div class="flex items-center gap-3">
+              ${statusBadge}
+              <div>
+                <div class="font-bold text-zinc-900 uppercase">${user.name}</div>
+                <div class="text-xs text-zinc-500">${user.phone || 'Sin teléfono'} • ${user.address || 'Sin dirección'}</div>
+              </div>
+            </div>
+            <svg class="h-5 w-5 text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+          `;
+          resultsContainer.appendChild(a);
+        });
+
+        resultsContainer.classList.remove('hidden');
+      };
+
+      input.addEventListener('input', (e) => {
+        renderResults(e.target.value);
+      });
+      
+      input.addEventListener('focus', (e) => {
+        if (!e.target.value && usersData.length > 0) {
+          // renderResults(' ');
+        }
+      });
+    });
+  </script>
 </AppLayout>
-

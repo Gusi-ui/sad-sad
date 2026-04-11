@@ -1,167 +1,124 @@
 ---
 import AppLayout from '../../../layouts/AppLayout.astro';
 import { db } from '../../../lib/db';
-import { randomId, hashPassword } from '../../../lib/crypto';
-
-const account = Astro.locals.account;
-
-if (Astro.request.method === 'POST') {
-  const formData = await Astro.request.formData();
-  const name = String(formData.get('name') ?? '').trim();
-  const workerType = String(formData.get('workerType') ?? 'laborable');
-  const email = String(formData.get('email') ?? '').trim().toLowerCase();
-  const password = String(formData.get('password') ?? '');
-
-  if (name && email && password) {
-    const workerId = randomId();
-    const accountId = randomId();
-    const pwd = await hashPassword(password);
-
-    const database = db();
-    await database
-      .prepare(`INSERT INTO workers (id, name, worker_type) VALUES (?, ?, ?)`)
-      .bind(workerId, name, workerType)
-      .run();
-
-    await database
-      .prepare(
-        `INSERT INTO accounts (id, email, password_hash, password_salt, password_iterations, role, worker_id) VALUES (?, ?, ?, ?, ?, 'WORKER', ?)`
-      )
-      .bind(accountId, email, pwd.hashBase64, pwd.saltBase64, pwd.iterations, workerId)
-      .run();
-
-    return Astro.redirect('/admin/workers');
-  }
-}
 
 const workers = await db()
   .prepare(
     `
-    SELECT w.id, w.name, w.active, w.worker_type,
+    SELECT w.id, w.name, w.active, w.worker_type, w.phone, w.address,
            a.email
     FROM workers w
     LEFT JOIN accounts a ON a.worker_id = w.id AND a.role = 'WORKER'
-    ORDER BY w.created_at DESC
+    ORDER BY w.name ASC
   `
   )
-  .all<{ id: string; name: string; active: number; worker_type: string; email: string | null }>();
-
-type WorkerRow = (typeof workers.results)[number];
+  .all<{ id: string; name: string; active: number; worker_type: string; phone: string | null; address: string | null; email: string | null }>();
 ---
 
 <AppLayout title="Trabajadoras | Admin">
   <div class="flex items-center justify-between border-b border-zinc-200 pb-4">
     <div>
-      <div class="flex items-center gap-2">
-        <a class="text-sm font-medium text-zinc-500 hover:text-zinc-800 transition-colors" href="/admin">Panel de control</a>
-        <span class="text-zinc-400">/</span>
-        <span class="text-sm font-medium text-zinc-800">Trabajadoras</span>
-      </div>
-      <h1 class="mt-2 text-2xl font-bold tracking-tight text-zinc-900">Gestión de Trabajadoras</h1>
+      <h1 class="text-2xl font-bold tracking-tight text-zinc-900">Gestión de Trabajadoras</h1>
+      <p class="mt-1 text-sm text-zinc-600">Busca una trabajadora para ver o editar sus datos.</p>
     </div>
-    <a class="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50 transition-colors shadow-sm" href="/admin">
-      Volver
-    </a>
+    <div class="flex items-center gap-3">
+      <a href="/admin/workers/new" class="rounded-lg bg-[#0284C7] hover:bg-sky-700 transition-colors px-4 py-2 text-sm font-bold text-white shadow-sm flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Nueva Trabajadora
+      </a>
+    </div>
   </div>
 
-  <div class="mt-6 grid gap-6 lg:grid-cols-3 items-start">
-    <section class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm lg:col-span-1 sticky top-6">
-      <h2 class="text-lg font-bold text-zinc-900 border-b border-zinc-100 pb-3 mb-4">Nueva Trabajadora</h2>
-      <form method="post" class="space-y-4">
-        <label class="block">
-          <span class="text-sm font-semibold text-zinc-700">Nombre completo</span>
-          <input class="mt-1.5 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all" name="name" placeholder="Ej: Rosa Robles Muñoz" required />
-        </label>
-
-        <label class="block">
-          <span class="text-sm font-semibold text-zinc-700">Tipo de contrato</span>
-          <select class="mt-1.5 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all" name="workerType">
-            <option value="laborable">Laborable (Lunes a Viernes)</option>
-            <option value="festivo">Festivo / Fines de Semana</option>
-            <option value="ambos">Ambos (Total disponibilidad)</option>
-          </select>
-        </label>
-
-        <div class="pt-4 pb-2">
-          <div class="h-px bg-zinc-100 w-full"></div>
-        </div>
-        <p class="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">Acceso App Móvil</p>
-
-        <label class="block">
-          <span class="text-sm font-semibold text-zinc-700">Email de acceso</span>
-          <input class="mt-1.5 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all" type="email" name="email" placeholder="trabajadora@empresa.com" required />
-        </label>
-
-        <label class="block">
-          <span class="text-sm font-semibold text-zinc-700">Contraseña temporal</span>
-          <input
-            class="mt-1.5 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all"
-            type="password"
-            name="password"
-            placeholder="Mínimo 8 caracteres"
-            required
-          />
-        </label>
-
-        <button class="mt-2 inline-flex w-full items-center justify-center rounded-lg bg-[#0284C7] hover:bg-sky-700 transition-colors px-4 py-2.5 text-sm font-bold text-white shadow-sm">
-          Registrar trabajadora
-        </button>
-      </form>
-    </section>
-
-    <section class="rounded-2xl border border-zinc-200 bg-white shadow-sm lg:col-span-2 overflow-hidden">
-      <div class="p-6 border-b border-zinc-100 flex items-center justify-between">
-        <h2 class="text-lg font-bold text-zinc-900">Listado Activo ({workers.results.length})</h2>
+  <div class="mt-8 max-w-2xl mx-auto">
+    <div class="relative" id="worker-search-container">
+      <div class="relative">
+        <svg class="absolute left-4 top-3.5 h-5 w-5 text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input 
+          type="text" 
+          id="worker-search-input"
+          class="w-full rounded-2xl border border-zinc-300 bg-white py-3 pl-11 pr-4 text-base shadow-sm focus:border-[#0284C7] focus:outline-none focus:ring-2 focus:ring-[#0284C7]/20 transition-all"
+          placeholder="Buscar trabajadora por nombre..."
+          autocomplete="off"
+        />
       </div>
-      <div class="overflow-x-auto">
-        <table class="w-full min-w-[720px] text-left text-sm">
-          <thead class="bg-zinc-50 text-xs uppercase text-zinc-500 border-b border-zinc-200">
-            <tr>
-              <th class="px-6 py-3 font-semibold">Nombre</th>
-              <th class="px-6 py-3 font-semibold">Email (App)</th>
-              <th class="px-6 py-3 font-semibold">Tipo</th>
-              <th class="px-6 py-3 font-semibold">Estado</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-zinc-100">
-            {workers.results.map((w: WorkerRow) => (
-              <tr class="hover:bg-zinc-50/50 transition-colors">
-                <td class="px-6 py-4">
-                  <a class="font-bold text-[#0284C7] hover:underline" href={`/admin/workers/${w.id}`}>
-                    {w.name}
-                  </a>
-                </td>
-                <td class="px-6 py-4 text-zinc-600 font-mono text-xs">{w.email ?? 'Sin acceso'}</td>
-                <td class="px-6 py-4">
-                  <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 capitalize">
-                    {w.worker_type}
-                  </span>
-                </td>
-                <td class="px-6 py-4">
-                  {w.active === 1 ? (
-                    <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
-                      <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> Activa
-                    </span>
-                  ) : (
-                    <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-100 text-zinc-700">
-                      <span class="h-1.5 w-1.5 rounded-full bg-zinc-400"></span> Inactiva
-                    </span>
-                  )}
-                </td>
-              </tr>
-            ))}
-            
-            {workers.results.length === 0 && (
-              <tr>
-                <td colspan="4" class="px-6 py-8 text-center text-zinc-500 italic">
-                  No hay trabajadoras registradas en el sistema.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+
+      <div id="worker-search-results" class="absolute z-10 mt-2 w-full rounded-xl border border-zinc-200 bg-white py-2 shadow-lg hidden max-h-[400px] overflow-y-auto">
+        <!-- Resultados inyectados por JS -->
       </div>
-    </section>
+      
+      <div id="worker-empty-state" class="mt-12 text-center text-zinc-500">
+        <svg class="mx-auto mb-3 h-12 w-12 text-zinc-300" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+        <p>Empieza a escribir para buscar una trabajadora.</p>
+        <p class="text-sm mt-1">Hay {workers.results.length} trabajadoras registradas.</p>
+      </div>
+    </div>
   </div>
+
+  <script is:inline define:vars={{ workersData: workers.results }}>
+    document.addEventListener('DOMContentLoaded', () => {
+      const input = document.getElementById('worker-search-input');
+      const resultsContainer = document.getElementById('worker-search-results');
+      const emptyState = document.getElementById('worker-empty-state');
+
+      if (!input || !resultsContainer || !emptyState) return;
+
+      const renderResults = (query) => {
+        const normalizedQuery = query.toLowerCase().trim();
+        
+        if (!normalizedQuery) {
+          resultsContainer.classList.add('hidden');
+          emptyState.classList.remove('hidden');
+          return;
+        }
+
+        const filtered = workersData.filter(w => w.name.toLowerCase().includes(normalizedQuery));
+        
+        resultsContainer.innerHTML = '';
+        emptyState.classList.add('hidden');
+
+        if (filtered.length === 0) {
+          resultsContainer.innerHTML = '<div class="px-4 py-3 text-sm text-zinc-500">No se encontraron trabajadoras.</div>';
+          resultsContainer.classList.remove('hidden');
+          return;
+        }
+
+        filtered.forEach(worker => {
+          const a = document.createElement('a');
+          a.href = `/admin/workers/${worker.id}`;
+          a.className = 'flex items-center justify-between px-4 py-3 hover:bg-zinc-50 transition-colors border-b border-zinc-100 last:border-0';
+          
+          const statusBadge = worker.active 
+            ? `<span class="h-2 w-2 rounded-full bg-emerald-500" title="Activa"></span>`
+            : `<span class="h-2 w-2 rounded-full bg-zinc-400" title="Inactiva"></span>`;
+
+          a.innerHTML = `
+            <div class="flex items-center gap-3">
+              ${statusBadge}
+              <div>
+                <div class="font-bold text-zinc-900">${worker.name}</div>
+                <div class="text-xs text-zinc-500">${worker.phone || 'Sin teléfono'} • ${worker.worker_type}</div>
+              </div>
+            </div>
+            <svg class="h-5 w-5 text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+          `;
+          resultsContainer.appendChild(a);
+        });
+
+        resultsContainer.classList.remove('hidden');
+      };
+
+      input.addEventListener('input', (e) => {
+        renderResults(e.target.value);
+      });
+      
+      // Mostrar todos si se hace focus y está vacío (opcional, pero ayuda a descubrir)
+      input.addEventListener('focus', (e) => {
+        if (!e.target.value && workersData.length > 0) {
+          // Si queremos mostrar la lista entera al hacer focus, descomentar:
+          // renderResults(' '); // Un espacio para forzar render
+        }
+      });
+    });
+  </script>
 </AppLayout>
 
