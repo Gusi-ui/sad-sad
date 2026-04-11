@@ -19,7 +19,12 @@ const workers = await db()
   <div class="flex items-center justify-between border-b border-zinc-200 pb-4">
     <div>
       <h1 class="text-2xl font-bold tracking-tight text-zinc-900">Gestión de Trabajadoras</h1>
-      <p class="mt-1 text-sm text-zinc-600">Busca una trabajadora para ver o editar sus datos.</p>
+      <p class="mt-1 text-sm text-zinc-600">
+        Busca una trabajadora para ver o editar sus datos. 
+        <span class="ml-2 inline-flex items-center rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-semibold text-sky-800">
+          Total: {workers.results.length}
+        </span>
+      </p>
     </div>
     <div class="flex items-center gap-3">
       <a href="/admin/workers/new" class="rounded-lg bg-[#0284C7] hover:bg-sky-700 transition-colors px-4 py-2 text-sm font-bold text-white shadow-sm flex items-center gap-2">
@@ -62,8 +67,10 @@ const workers = await db()
 
       if (!input || !resultsContainer || !emptyState) return;
 
+      const normalize = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
       const renderResults = (query) => {
-        const normalizedQuery = query.toLowerCase().trim();
+        const normalizedQuery = normalize(query.trim());
         
         if (!normalizedQuery) {
           resultsContainer.classList.add('hidden');
@@ -71,7 +78,7 @@ const workers = await db()
           return;
         }
 
-        const filtered = workersData.filter(w => w.name.toLowerCase().includes(normalizedQuery));
+        const filtered = workersData.filter(w => normalize(w.name).includes(normalizedQuery));
         
         resultsContainer.innerHTML = '';
         emptyState.classList.add('hidden');
