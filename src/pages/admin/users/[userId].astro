@@ -338,7 +338,7 @@ const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssign
         <input type="hidden" name="_action" value="add_template" />
         <label class="block">
           <span class="text-sm font-medium text-zinc-700">Tipo de día</span>
-          <select class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="kind" onchange="const req=this.form?.querySelector('[name=requiredWorkerType]'); if(req){ if(this.value==='festivo' && req.value==='laborable') req.value='festivo'; if(this.value==='laborable' && req.value==='festivo') req.value='laborable'; }">
+          <select class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="kind">
             <option value="laborable">Laborable (Lunes a Viernes)</option>
             <option value="festivo">Festivo / Fin de semana</option>
           </select>

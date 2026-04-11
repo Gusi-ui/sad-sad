@@ -37,6 +37,103 @@ const getDayKind = async (dateYmd: string, weekday0to6: number) => {
   return 'laborable' as const;
 };
 
+const matchesWorkerType = (required: string | null, workerType: 'laborable' | 'festivo' | 'ambos') => {
+  const req = required ?? 'ambos';
+  if (req === 'ambos') return true;
+  if (workerType === 'ambos') return true;
+  return workerType === req;
+};
+
+const autoAssignWeekRange = async (startYmd: string, endYmd: string) => {
+  const workers = await database
+    .prepare(`SELECT id, name, worker_type FROM workers WHERE active = 1 ORDER BY name ASC`)
+    .all<{ id: string; name: string; worker_type: 'laborable' | 'festivo' | 'ambos' }>();
+  if (workers.results.length === 0) return;
+
+  const userPrefs = await database
+    .prepare(`SELECT id, preferred_worker_id, preferred_weekend_worker_id FROM service_users`)
+    .all<{ id: string; preferred_worker_id: string | null; preferred_weekend_worker_id: string | null }>();
+  const prefsMap = new Map<string, { preferred_worker_id: string | null; preferred_weekend_worker_id: string | null }>();
+  for (const p of userPrefs.results) prefsMap.set(p.id, p);
+
+  const weekAssignments = await database
+    .prepare(
+      `SELECT a.id, a.date, a.kind, a.planned_start, a.planned_end, a.service_user_id, a.assigned_worker_id,
+              t.required_worker_type
+       FROM assignments a
+       LEFT JOIN service_templates t ON t.id = a.template_id
+       WHERE a.date >= ? AND a.date <= ? AND a.status != 'cancelled'
+       ORDER BY a.date ASC, a.planned_start ASC, a.id ASC`
+    )
+    .bind(startYmd, endYmd)
+    .all<{
+      id: string;
+      date: string;
+      kind: string;
+      planned_start: string;
+      planned_end: string;
+      service_user_id: string;
+      assigned_worker_id: string | null;
+      required_worker_type: string | null;
+    }>();
+
+  const workerIntervalsByDate = new Map<string, { start: number; end: number }[]>();
+  const workerLoadMinutes = new Map<string, number>();
+  for (const a of weekAssignments.results) {
+    if (!a.assigned_worker_id) continue;
+    const start = timeToMinutes(a.planned_start);
+    const end = timeToMinutes(a.planned_end);
+    if (start === null || end === null) continue;
+    const key = `${a.assigned_worker_id}|${a.date}`;
+    const arr = workerIntervalsByDate.get(key) ?? [];
+    arr.push({ start, end });
+    workerIntervalsByDate.set(key, arr);
+    workerLoadMinutes.set(a.assigned_worker_id, (workerLoadMinutes.get(a.assigned_worker_id) ?? 0) + Math.max(0, end - start));
+  }
+
+  for (const a of weekAssignments.results.filter((x) => !x.assigned_worker_id)) {
+    const start = timeToMinutes(a.planned_start);
+    const end = timeToMinutes(a.planned_end);
+    if (start === null || end === null) continue;
+
+    const pref = prefsMap.get(a.service_user_id);
+    const habitualWorkerId = a.kind === 'laborable'
+      ? pref?.preferred_worker_id ?? null
+      : pref?.preferred_weekend_worker_id ?? pref?.preferred_worker_id ?? null;
+
+    const candidates = workers.results
+      .map((w) => {
+        const key = `${w.id}|${a.date}`;
+        const intervals = workerIntervalsByDate.get(key) ?? [];
+        const available = !intervals.some((it) => overlaps(start, end, it.start, it.end));
+        const compatible = matchesWorkerType(a.required_worker_type, w.worker_type);
+        const habitual = habitualWorkerId === w.id;
+        const loadMinutes = workerLoadMinutes.get(w.id) ?? 0;
+        return { w, available, compatible, habitual, loadMinutes };
+      })
+      .sort((x, y) =>
+        Number(y.compatible) - Number(x.compatible) ||
+        Number(y.available) - Number(x.available) ||
+        Number(y.habitual) - Number(x.habitual) ||
+        x.loadMinutes - y.loadMinutes ||
+        x.w.name.localeCompare(y.w.name)
+      );
+
+    const pick = candidates.find((c) => c.compatible && c.available)
+      ?? candidates.find((c) => c.available)
+      ?? candidates.find((c) => c.compatible)
+      ?? candidates[0];
+    if (!pick) continue;
+
+    await database.prepare(`UPDATE assignments SET assigned_worker_id = ? WHERE id = ?`).bind(pick.w.id, a.id).run();
+    const key = `${pick.w.id}|${a.date}`;
+    const arr = workerIntervalsByDate.get(key) ?? [];
+    arr.push({ start, end });
+    workerIntervalsByDate.set(key, arr);
+    workerLoadMinutes.set(pick.w.id, (workerLoadMinutes.get(pick.w.id) ?? 0) + Math.max(0, end - start));
+  }
+};
+
 if (Astro.request.method === 'POST') {
   const formData = await Astro.request.formData();
   const action = String(formData.get('_action') ?? 'generate');
@@ -56,39 +153,7 @@ if (Astro.request.method === 'POST') {
   }
 
   if (action === 'auto_assign') {
-    const unassigned = await database
-      .prepare(`SELECT id, date, kind, planned_start, planned_end, service_user_id FROM assignments WHERE assigned_worker_id IS NULL AND date >= ? AND date <= ?`)
-      .bind(toYmd(new Date(weekDates[0])), toYmd(new Date(weekDates[6])))
-      .all<{ id: string; date: string; kind: string; planned_start: string; planned_end: string; service_user_id: string }>();
-
-    const allWorkers = await database.prepare(`SELECT id FROM workers WHERE active = 1`).all<{ id: string }>();
-    
-    // Para MVP rápido: obtenemos las preferencias de los usuarios para la autoasignación rápida
-    const userPrefs = await database
-      .prepare(`SELECT id, preferred_worker_id, preferred_weekend_worker_id FROM service_users`)
-      .all<{ id: string; preferred_worker_id: string | null; preferred_weekend_worker_id: string | null }>();
-      
-    const prefsMap = new Map();
-    for (const p of userPrefs.results) {
-      prefsMap.set(p.id, p);
-    }
-
-    if (allWorkers.results.length > 0) {
-      for (const a of unassigned.results) {
-        let assignedWorker = allWorkers.results[0].id; // Fallback
-        
-        const pref = prefsMap.get(a.service_user_id);
-        if (pref) {
-          if (a.kind === 'laborable' && pref.preferred_worker_id) {
-            assignedWorker = pref.preferred_worker_id;
-          } else if (a.kind !== 'laborable') {
-             assignedWorker = pref.preferred_weekend_worker_id || pref.preferred_worker_id || assignedWorker;
-          }
-        }
-        
-        await database.prepare(`UPDATE assignments SET assigned_worker_id = ? WHERE id = ?`).bind(assignedWorker, a.id).run();
-      }
-    }
+    await autoAssignWeekRange(toYmd(new Date(weekDates[0])), toYmd(new Date(weekDates[6])));
     return Astro.redirect(`/admin/schedule/week?week=${weekKey}`);
   }
 
@@ -157,6 +222,10 @@ if (Astro.request.method === 'POST') {
           .run();
       }
     }
+  }
+
+  if (action === 'generate' || action === 'regenerate_week') {
+    await autoAssignWeekRange(toYmd(new Date(weekDates[0])), toYmd(new Date(weekDates[6])));
   }
 
   return Astro.redirect(`/admin/schedule/week?week=${weekKey}`);
@@ -236,13 +305,6 @@ for (const a of assignments.results) {
   const duration = Math.max(0, end - start);
   workerLoadMinutes.set(a.assigned_worker_id, (workerLoadMinutes.get(a.assigned_worker_id) ?? 0) + duration);
 }
-
-const matchesWorkerType = (required: string | null, workerType: WorkerRow['worker_type']) => {
-  const req = required ?? 'ambos';
-  if (req === 'ambos') return true;
-  if (workerType === 'ambos') return true;
-  return workerType === req;
-};
 
 const getWorkerAvailability = (workerId: string, date: string, start: number, end: number) => {
   const key = `${workerId}|${date}`;
@@ -347,44 +409,40 @@ const formatMinutes = (minutes: number) => {
     </label>
   </div>
   <p class="mt-3 text-xs text-zinc-500">
-    Si editas o borras plantillas de un usuario, usa <strong>Regenerar semana</strong> para refrescar la agenda y evitar datos antiguos.
+    La asignación se guarda automáticamente al cambiar la trabajadora. Si editas/borras plantillas, usa <strong>Regenerar semana</strong> para refrescar la agenda.
   </p>
 
   <section class="mt-6 rounded-2xl border border-zinc-200 bg-white shadow-sm overflow-hidden">
     <div class="p-6 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/50">
       <h2 class="text-lg font-bold text-zinc-900" id="assignments-count">Servicios Planificados ({assignments.results.length})</h2>
     </div>
-    <div class="overflow-x-auto">
-      <table class="w-full min-w-[900px] text-left text-sm">
+    <div>
+      <table class="w-full table-fixed text-left text-sm">
         <thead class="bg-zinc-50 text-xs uppercase text-zinc-500 border-b border-zinc-200">
           <tr>
             <th class="px-6 py-3 font-semibold">Fecha</th>
             <th class="px-6 py-3 font-semibold">Usuario/a</th>
-            <th class="px-6 py-3 font-semibold">Tipo</th>
-            <th class="px-6 py-3 font-semibold">Horario</th>
-            <th class="px-6 py-3 font-semibold">Origen</th>
-            <th class="px-6 py-3 font-semibold">Requisito</th>
+            <th class="px-6 py-3 font-semibold">Servicio</th>
             <th class="px-6 py-3 font-semibold">Asignación</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-zinc-100" id="assignments-tbody">
           {assignments.results.map((a: AssignmentRow) => (
             <tr class={`assignment-row ${a.assigned_worker_id ? 'hover:bg-zinc-50/50' : 'bg-amber-50/30 hover:bg-amber-50/60'} transition-colors`} data-user={a.user_name} data-worker={a.worker_name ?? ''} data-assigned={a.assigned_worker_id ? '1' : '0'}>
-              <td class="px-6 py-4 font-medium text-zinc-700">{a.date}</td>
-              <td class="px-6 py-4 font-bold text-emerald-600 uppercase">{a.user_name}</td>
-              <td class="px-6 py-4">
-                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-zinc-100 text-zinc-600 capitalize">
-                  {a.kind}
-                </span>
+              <td class="px-4 py-4 font-medium text-zinc-700 whitespace-nowrap">{a.date}</td>
+              <td class="px-4 py-4 font-semibold text-emerald-700 truncate" title={a.user_name}>{a.user_name}</td>
+              <td class="px-4 py-4">
+                <div class="flex items-center gap-2 whitespace-nowrap overflow-hidden">
+                  <span class="font-bold text-[#4B79A1]">{a.planned_start} - {a.planned_end}</span>
+                  <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-zinc-100 text-zinc-600 capitalize">
+                    {a.kind}
+                  </span>
+                  <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-zinc-100 text-zinc-600 capitalize">
+                    {a.required_worker_type ?? 'cualquiera'}
+                  </span>
+                </div>
               </td>
-              <td class="px-6 py-4 font-bold text-[#4B79A1]">{a.planned_start} - {a.planned_end}</td>
-              <td class="px-6 py-4">
-                <span class={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${a.source === 'template' ? 'bg-indigo-50 text-indigo-700' : 'bg-zinc-100 text-zinc-700'}`}>
-                  {a.source === 'template' ? 'Plantilla' : 'Manual'}
-                </span>
-              </td>
-              <td class="px-6 py-4 text-zinc-500 text-xs capitalize">{a.required_worker_type ?? 'Cualquiera'}</td>
-              <td class="px-6 py-4">
+              <td class="px-4 py-4">
                 {(() => {
                   const start = timeToMinutes(a.planned_start);
                   const end = timeToMinutes(a.planned_end);
@@ -427,10 +485,10 @@ const formatMinutes = (minutes: number) => {
                     ?? '';
 
                   return (
-                    <form method="post" class="flex items-center gap-2">
+                    <form method="post" class="flex items-center gap-2 w-full">
                       <input type="hidden" name="_action" value="assign" />
                       <input type="hidden" name="assignmentId" value={a.id} />
-                      <select class={`min-w-64 rounded-lg border ${a.assigned_worker_id ? 'border-zinc-300' : 'border-amber-300 bg-amber-50 text-amber-900'} px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all`} name="workerId">
+                      <select class={`w-full max-w-full rounded-lg border ${a.assigned_worker_id ? 'border-zinc-300' : 'border-amber-300 bg-amber-50 text-amber-900'} px-2 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all`} name="workerId">
                         <option value="">— Sin asignar —</option>
                         {candidates.map(({ w, available, habitual, compatible }: Candidate) => (
                           <option value={w.id} selected={a.assigned_worker_id === w.id || (!a.assigned_worker_id && suggested === w.id)}>
@@ -439,7 +497,6 @@ const formatMinutes = (minutes: number) => {
                           </option>
                         ))}
                       </select>
-                      <button class="rounded-lg bg-zinc-900 hover:bg-zinc-800 transition-colors px-3 py-2 text-sm font-medium text-white shadow-sm">Guardar</button>
                       
                       {!a.assigned_worker_id && (
                         <span class="ml-2 flex h-2 w-2 rounded-full bg-amber-500" title="Requiere asignación"></span>
@@ -453,7 +510,7 @@ const formatMinutes = (minutes: number) => {
           
           {assignments.results.length === 0 && (
             <tr>
-              <td colspan="7" class="px-6 py-8 text-center text-zinc-500 italic">
+              <td colspan="4" class="px-4 py-8 text-center text-zinc-500 italic">
                 No hay servicios planificados para esta semana. Genera el cuadrante usando las plantillas.
               </td>
             </tr>
@@ -468,16 +525,16 @@ const formatMinutes = (minutes: number) => {
     <p class="mt-1 text-xs text-zinc-600">Lectura rápida para revisar por fecha qué usuario tiene servicio, horario y trabajadora asignada.</p>
     <div class="mt-4 space-y-3">
       {groupedDays.map((day) => (
-        <details class="rounded-xl border border-zinc-200 bg-zinc-50/40" open>
+        <details class="rounded-xl border border-zinc-200 bg-zinc-50/40 day-group" data-date={day.date} open>
           <summary class="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-zinc-800">
             {formatDateEs(day.date)} · {day.items.length} servicios
           </summary>
           <div class="border-t border-zinc-200 bg-white">
             {day.items.map((a) => (
-              <div class="grid gap-2 border-b border-zinc-100 px-4 py-3 text-sm last:border-b-0 md:grid-cols-[1fr_auto_auto]">
+              <div class="day-item grid gap-2 border-b border-zinc-100 px-4 py-3 text-sm last:border-b-0 md:grid-cols-[1fr_auto_auto]" data-assignment-id={a.id} data-user={a.user_name} data-worker={a.worker_name ?? ''} data-assigned={a.assigned_worker_id ? '1' : '0'}>
                 <div class="font-semibold text-emerald-700 uppercase">{a.user_name}</div>
                 <div class="font-medium text-[#4B79A1]">{a.planned_start} - {a.planned_end}</div>
-                <div class="text-zinc-600">{a.worker_name ?? 'Sin asignar'}</div>
+                <div class="text-zinc-600 day-worker-name">{a.worker_name ?? 'Sin asignar'}</div>
               </div>
             ))}
           </div>
@@ -497,6 +554,8 @@ const formatMinutes = (minutes: number) => {
       const filterWorker = document.getElementById('filter-worker') as HTMLInputElement;
       const filterUnassigned = document.getElementById('filter-unassigned') as HTMLInputElement;
       const rows = document.querySelectorAll('.assignment-row') as NodeListOf<HTMLElement>;
+      const dayItems = document.querySelectorAll('.day-item') as NodeListOf<HTMLElement>;
+      const dayGroups = document.querySelectorAll('.day-group') as NodeListOf<HTMLElement>;
       const countEl = document.getElementById('assignments-count');
       
       const normalize = (str: string) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -538,6 +597,22 @@ const formatMinutes = (minutes: number) => {
             row.style.display = 'none';
           }
         });
+
+        dayItems.forEach((item) => {
+          const rUser = normalize(item.getAttribute('data-user') || '');
+          const rWorker = normalize(item.getAttribute('data-worker') || '');
+          const rAssigned = item.getAttribute('data-assigned') === '1';
+
+          const matchUser = !uQuery || rUser.includes(uQuery);
+          const matchWorker = !wQuery || rWorker.includes(wQuery);
+          const matchUnassigned = !onlyUnassigned || !rAssigned;
+          item.style.display = matchUser && matchWorker && matchUnassigned ? '' : 'none';
+        });
+
+        dayGroups.forEach((group) => {
+          const visibleItems = group.querySelectorAll('.day-item:not([style*="display: none"])').length;
+          group.style.display = visibleItems > 0 ? '' : 'none';
+        });
         
         if (countEl) {
           countEl.textContent = `Servicios Planificados (${visibleCount})`;
@@ -557,8 +632,21 @@ const formatMinutes = (minutes: number) => {
         if (!select) return;
         select.addEventListener('change', () => {
           const selectedLabel = select.selectedOptions?.[0]?.textContent ?? '';
-          row.setAttribute('data-worker', select.value ? extractWorkerName(selectedLabel) : '');
+          const selectedWorker = select.value ? extractWorkerName(selectedLabel) : '';
+          row.setAttribute('data-worker', selectedWorker);
+          row.setAttribute('data-assigned', select.value ? '1' : '0');
+          const assignmentIdInput = row.querySelector('input[name="assignmentId"]') as HTMLInputElement | null;
+          if (assignmentIdInput?.value) {
+            const mirror = document.querySelector(`.day-item[data-assignment-id="${assignmentIdInput.value}"]`) as HTMLElement | null;
+            if (mirror) {
+              mirror.setAttribute('data-worker', selectedWorker);
+              mirror.setAttribute('data-assigned', select.value ? '1' : '0');
+              const workerText = mirror.querySelector('.day-worker-name');
+              if (workerText) workerText.textContent = selectedWorker || 'Sin asignar';
+            }
+          }
           updateFilters();
+          select.form?.requestSubmit();
         });
       });
 
