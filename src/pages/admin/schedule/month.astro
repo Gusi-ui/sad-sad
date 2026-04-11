@@ -40,6 +40,17 @@ const formatHours = (hours: number) => {
   return `${sign}${h}h ${String(mm).padStart(2, '0')}m`;
 };
 
+const getWeekRangeYmd = (ymd: string) => {
+  const base = new Date(`${ymd}T00:00:00Z`);
+  const jsDow = base.getUTCDay();
+  const mondayShift = (jsDow + 6) % 7;
+  const monday = new Date(base);
+  monday.setUTCDate(base.getUTCDate() - mondayShift);
+  const sunday = new Date(monday);
+  sunday.setUTCDate(monday.getUTCDate() + 6);
+  return { start: toYmd(monday), end: toYmd(sunday) };
+};
+
 const monthStart = new Date(Date.UTC(safeYear, safeMonth - 1, 1));
 const monthEnd = new Date(Date.UTC(safeYear, safeMonth, 0));
 const startYmd = toYmd(monthStart);
@@ -120,10 +131,12 @@ const realWorkerMinutes = selectedWorkerId
       .reduce((acc, a) => acc + Math.max(0, toMinutes(a.planned_end) - toMinutes(a.planned_start)), 0)
   : 0;
 const realWorkerHours = minutesToHours(realWorkerMinutes);
-const workerMonthTarget = selectedWorkerContract?.hours_per_month ?? null;
+const workerMonthTargetExplicit = selectedWorkerContract?.hours_per_month ?? null;
 const workerWeekTarget = selectedWorkerContract?.hours_per_week ?? null;
 const daysInMonth = monthEnd.getUTCDate();
 const avgWeekHoursRealWorker = daysInMonth > 0 ? (realWorkerHours * 7) / daysInMonth : 0;
+const workerMonthTargetFromWeek = workerWeekTarget !== null ? (workerWeekTarget * daysInMonth) / 7 : null;
+const workerMonthTarget = workerMonthTargetExplicit ?? workerMonthTargetFromWeek;
 const workerDeltaMonth = workerMonthTarget !== null ? realWorkerHours - workerMonthTarget : null;
 const workerDeltaWeek = workerWeekTarget !== null ? avgWeekHoursRealWorker - workerWeekTarget : null;
 
@@ -328,6 +341,38 @@ for (let day = 1; day <= monthEnd.getUTCDate(); day += 1) {
 
 const selectedItems = selectedDay ? mergedByDate.get(selectedDay) ?? [] : [];
 const mergedMonthCount = Array.from(mergedByDate.values()).reduce((acc, arr) => acc + arr.length, 0);
+
+const userTheoreticalMinutes = selectedUserId
+  ? Array.from(mergedByDate.values())
+      .flatMap((rows) => rows)
+      .filter((r) => r.user_id === selectedUserId)
+      .reduce((acc, r) => acc + Math.max(0, toMinutes(r.planned_end) - toMinutes(r.planned_start)), 0)
+  : 0;
+const userTheoreticalHours = minutesToHours(userTheoreticalMinutes);
+const userTheoreticalDelta = userQuota !== null ? userTheoreticalHours - userQuota : null;
+
+const referenceYmd = selectedDay ?? startYmd;
+const weekRef = getWeekRangeYmd(referenceYmd);
+const userWeekRealMinutes = selectedUserId
+  ? allAssignments.results
+      .filter((a) => a.user_id === selectedUserId && a.date >= weekRef.start && a.date <= weekRef.end)
+      .reduce((acc, a) => acc + Math.max(0, toMinutes(a.planned_end) - toMinutes(a.planned_start)), 0)
+  : 0;
+const workerWeekRealMinutes = selectedWorkerId
+  ? allAssignments.results
+      .filter((a) => a.worker_id === selectedWorkerId && a.date >= weekRef.start && a.date <= weekRef.end)
+      .reduce((acc, a) => acc + Math.max(0, toMinutes(a.planned_end) - toMinutes(a.planned_start)), 0)
+  : 0;
+const userDayMinutes = selectedUserId
+  ? selectedItems
+      .filter((a) => a.user_id === selectedUserId)
+      .reduce((acc, a) => acc + Math.max(0, toMinutes(a.planned_end) - toMinutes(a.planned_start)), 0)
+  : 0;
+const workerDayMinutes = selectedWorkerId
+  ? selectedItems
+      .filter((a) => a.worker_id === selectedWorkerId)
+      .reduce((acc, a) => acc + Math.max(0, toMinutes(a.planned_end) - toMinutes(a.planned_start)), 0)
+  : 0;
 ---
 
 <AppLayout title="Agenda mensual | Admin">
@@ -394,27 +439,41 @@ const mergedMonthCount = Array.from(mergedByDate.values()).reduce((acc, arr) => 
     <section class="mt-4 grid gap-3 md:grid-cols-2">
       {selectedUserInfo && (
         <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-          <div class="text-xs text-emerald-700">Cómputo real usuario (assignments del mes)</div>
+          <div class="text-xs text-emerald-700">Cómputo mensual usuario (real + teórico)</div>
           <div class="mt-1 text-base font-semibold text-emerald-900">{selectedUserInfo.name}</div>
-          <div class="mt-2 text-sm text-emerald-900">Horas reales: <span class="font-semibold">{formatHours(realUserHours)}</span></div>
+          <div class="mt-2 text-sm text-emerald-900">Día seleccionado: <span class="font-semibold">{formatHours(minutesToHours(userDayMinutes))}</span></div>
+          <div class="text-sm text-emerald-900">Semana de referencia ({weekRef.start} → {weekRef.end}): <span class="font-semibold">{formatHours(minutesToHours(userWeekRealMinutes))}</span></div>
+          <div class="text-sm text-emerald-900">Mes real (asignaciones guardadas): <span class="font-semibold">{formatHours(realUserHours)}</span></div>
+          <div class="text-sm text-emerald-900">Mes teórico (si se realizan todos los servicios del mes): <span class="font-semibold">{formatHours(userTheoreticalHours)}</span></div>
           <div class="text-sm text-emerald-900">Cuota ayuntamiento: <span class="font-semibold">{userQuota !== null ? `${userQuota} h` : 'No definida'}</span></div>
           <div class={`mt-2 text-sm font-semibold ${userDelta === null ? 'text-emerald-800' : userDelta > 0.02 ? 'text-amber-700' : userDelta < -0.02 ? 'text-blue-700' : 'text-emerald-700'}`}>
             {userDelta === null
               ? 'Sin cuota mensual configurada'
               : userDelta > 0.02
-                ? `Sobra ${userDelta.toFixed(2)} h`
+                ? `Mes real: sobran ${userDelta.toFixed(2)} h`
                 : userDelta < -0.02
-                  ? `Faltan ${Math.abs(userDelta).toFixed(2)} h`
-                  : 'Cuota en equilibrio'}
+                  ? `Mes real: faltan ${Math.abs(userDelta).toFixed(2)} h`
+                  : 'Mes real en equilibrio'}
+          </div>
+          <div class={`mt-1 text-sm font-semibold ${userTheoreticalDelta === null ? 'text-emerald-800' : userTheoreticalDelta > 0.02 ? 'text-amber-700' : userTheoreticalDelta < -0.02 ? 'text-blue-700' : 'text-emerald-700'}`}>
+            {userTheoreticalDelta === null
+              ? 'Sin cuota mensual configurada'
+              : userTheoreticalDelta > 0.02
+                ? `Mes teórico: sobran ${userTheoreticalDelta.toFixed(2)} h`
+                : userTheoreticalDelta < -0.02
+                  ? `Mes teórico: faltan ${Math.abs(userTheoreticalDelta).toFixed(2)} h`
+                  : 'Mes teórico en equilibrio'}
           </div>
         </div>
       )}
       {selectedWorkerInfo && (
         <div class="rounded-2xl border border-sky-200 bg-sky-50 p-4">
-          <div class="text-xs text-sky-700">Cómputo real trabajadora (assignments del mes)</div>
+          <div class="text-xs text-sky-700">Cómputo trabajadora (día/semana/mes)</div>
           <div class="mt-1 text-base font-semibold text-sky-900">{selectedWorkerInfo.name}</div>
-          <div class="mt-2 text-sm text-sky-900">Horas reales: <span class="font-semibold">{formatHours(realWorkerHours)}</span></div>
-          <div class="text-sm text-sky-900">Objetivo mensual contrato: <span class="font-semibold">{workerMonthTarget !== null ? `${workerMonthTarget} h` : 'No definido'}</span></div>
+          <div class="mt-2 text-sm text-sky-900">Día seleccionado: <span class="font-semibold">{formatHours(minutesToHours(workerDayMinutes))}</span></div>
+          <div class="text-sm text-sky-900">Semana de referencia ({weekRef.start} → {weekRef.end}): <span class="font-semibold">{formatHours(minutesToHours(workerWeekRealMinutes))}</span></div>
+          <div class="text-sm text-sky-900">Mes real: <span class="font-semibold">{formatHours(realWorkerHours)}</span></div>
+          <div class="text-sm text-sky-900">Objetivo mensual contrato: <span class="font-semibold">{workerMonthTarget !== null ? `${workerMonthTarget.toFixed(2)} h` : 'No definido'}</span>{workerMonthTargetExplicit === null && workerMonthTargetFromWeek !== null ? ' (derivado de h/sem)' : ''}</div>
           <div class="text-sm text-sky-900">Media semanal real: <span class="font-semibold">{avgWeekHoursRealWorker.toFixed(2)} h/sem</span> {workerWeekTarget !== null ? `· objetivo ${workerWeekTarget} h/sem` : ''}</div>
           <div class={`mt-2 text-sm font-semibold ${
             workerDeltaMonth !== null
