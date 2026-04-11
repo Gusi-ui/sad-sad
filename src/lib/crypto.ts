@@ -1,3 +1,15 @@
+const safeBtoa = (str: string) => {
+  if (typeof btoa !== 'undefined') return btoa(str);
+  if (typeof globalThis !== 'undefined' && (globalThis as any).Buffer) return (globalThis as any).Buffer.from(str, 'binary').toString('base64');
+  return '';
+};
+
+const safeAtob = (b64: string) => {
+  if (typeof atob !== 'undefined') return atob(b64);
+  if (typeof globalThis !== 'undefined' && (globalThis as any).Buffer) return (globalThis as any).Buffer.from(b64, 'base64').toString('binary');
+  return '';
+};
+
 const textEncoder = new TextEncoder();
 
 export const randomId = () => crypto.randomUUID();
@@ -22,15 +34,15 @@ export const hashPassword = async (password: string) => {
 
   const hashBytes = new Uint8Array(derivedBits);
   return {
-    hashBase64: btoa(String.fromCharCode(...hashBytes)),
-    saltBase64: btoa(String.fromCharCode(...saltBytes)),
+    hashBase64: safeBtoa(String.fromCharCode(...hashBytes)),
+    saltBase64: safeBtoa(String.fromCharCode(...saltBytes)),
     iterations
   };
 };
 
 export const verifyPassword = async (password: string, params: { hashBase64: string; saltBase64: string; iterations: number }) => {
-  const saltBytes = Uint8Array.from(atob(params.saltBase64), (c) => c.charCodeAt(0));
-  const expectedHashBytes = Uint8Array.from(atob(params.hashBase64), (c) => c.charCodeAt(0));
+  const saltBytes = Uint8Array.from(safeAtob(params.saltBase64).split(''), (c: string) => c.charCodeAt(0));
+  const expectedHashBytes = Uint8Array.from(safeAtob(params.hashBase64).split(''), (c: string) => c.charCodeAt(0));
 
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
