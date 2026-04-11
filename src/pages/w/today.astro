@@ -1,8 +1,4 @@
 ---
-import { toYmd } from '../../lib/dates';
-
 export const prerender = false;
-
-return Astro.redirect(`/w/day/${toYmd(new globalThis.Date())}`);
+return Astro.redirect(`/w/day/${new globalThis.Date().toISOString().slice(0, 10)}`);
 ---
-

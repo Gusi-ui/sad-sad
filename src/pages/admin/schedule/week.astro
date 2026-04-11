@@ -305,6 +305,10 @@ const formatMinutes = (minutes: number) => {
       <svg class="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
       <input type="text" id="filter-worker" class="w-full rounded-lg border border-zinc-300 bg-white py-2 pl-9 pr-4 text-sm shadow-sm focus:border-[#0284C7] focus:outline-none focus:ring-1 focus:ring-[#0284C7] transition-all" placeholder="Filtrar por Trabajadora asignada..." autocomplete="off" />
     </div>
+    <label class="md:col-span-2 inline-flex items-center gap-2 text-sm text-zinc-700">
+      <input id="filter-unassigned" type="checkbox" class="h-4 w-4 rounded border-zinc-300 text-amber-600 focus:ring-amber-500" />
+      Ver solo servicios sin trabajadora asignada
+    </label>
   </div>
 
   <section class="mt-6 rounded-2xl border border-zinc-200 bg-white shadow-sm overflow-hidden">
@@ -325,7 +329,7 @@ const formatMinutes = (minutes: number) => {
         </thead>
         <tbody class="divide-y divide-zinc-100" id="assignments-tbody">
           {assignments.results.map((a: AssignmentRow) => (
-            <tr class={`assignment-row ${a.assigned_worker_id ? 'hover:bg-zinc-50/50' : 'bg-amber-50/30 hover:bg-amber-50/60'} transition-colors`} data-user={a.user_name} data-worker={a.worker_name ?? ''}>
+            <tr class={`assignment-row ${a.assigned_worker_id ? 'hover:bg-zinc-50/50' : 'bg-amber-50/30 hover:bg-amber-50/60'} transition-colors`} data-user={a.user_name} data-worker={a.worker_name ?? ''} data-assigned={a.assigned_worker_id ? '1' : '0'}>
               <td class="px-6 py-4 font-medium text-zinc-700">{a.date}</td>
               <td class="px-6 py-4 font-bold text-emerald-600 uppercase">{a.user_name}</td>
               <td class="px-6 py-4">
@@ -415,25 +419,43 @@ const formatMinutes = (minutes: number) => {
     document.addEventListener('DOMContentLoaded', () => {
       const filterUser = document.getElementById('filter-user') as HTMLInputElement;
       const filterWorker = document.getElementById('filter-worker') as HTMLInputElement;
+      const filterUnassigned = document.getElementById('filter-unassigned') as HTMLInputElement;
       const rows = document.querySelectorAll('.assignment-row') as NodeListOf<HTMLElement>;
       const countEl = document.getElementById('assignments-count');
       
       const normalize = (str: string) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      const extractWorkerName = (label: string) =>
+        label.replace(/^★\s*/, '').split(' (')[0]?.trim() ?? '';
+
+      const syncWorkerIndexFromSelect = () => {
+        rows.forEach((row) => {
+          const select = row.querySelector('select[name="workerId"]') as HTMLSelectElement | null;
+          if (!select || !select.value) {
+            row.setAttribute('data-worker', '');
+            return;
+          }
+          const selectedLabel = select.selectedOptions?.[0]?.textContent ?? '';
+          row.setAttribute('data-worker', extractWorkerName(selectedLabel));
+        });
+      };
       
       const updateFilters = () => {
         const uQuery = normalize(filterUser.value.trim());
         const wQuery = normalize(filterWorker.value.trim());
+        const onlyUnassigned = Boolean(filterUnassigned?.checked);
         
         let visibleCount = 0;
         
         rows.forEach(row => {
           const rUser = normalize(row.getAttribute('data-user') || '');
           const rWorker = normalize(row.getAttribute('data-worker') || '');
+          const rAssigned = row.getAttribute('data-assigned') === '1';
           
           const matchUser = !uQuery || rUser.includes(uQuery);
           const matchWorker = !wQuery || rWorker.includes(wQuery);
+          const matchUnassigned = !onlyUnassigned || !rAssigned;
           
-          if (matchUser && matchWorker) {
+          if (matchUser && matchWorker && matchUnassigned) {
             row.style.display = '';
             visibleCount++;
           } else {
@@ -450,16 +472,32 @@ const formatMinutes = (minutes: number) => {
         filterUser.addEventListener('input', updateFilters);
         filterWorker.addEventListener('input', updateFilters);
       }
+      if (filterUnassigned) {
+        filterUnassigned.addEventListener('change', updateFilters);
+      }
+
+      rows.forEach((row) => {
+        const select = row.querySelector('select[name="workerId"]') as HTMLSelectElement | null;
+        if (!select) return;
+        select.addEventListener('change', () => {
+          const selectedLabel = select.selectedOptions?.[0]?.textContent ?? '';
+          row.setAttribute('data-worker', select.value ? extractWorkerName(selectedLabel) : '');
+          updateFilters();
+        });
+      });
 
       const resetBtn = document.getElementById('reset-filters');
       if (resetBtn) {
         resetBtn.addEventListener('click', () => {
           if (filterUser) filterUser.value = '';
           if (filterWorker) filterWorker.value = '';
+          if (filterUnassigned) filterUnassigned.checked = false;
           updateFilters();
         });
       }
+
+      syncWorkerIndexFromSelect();
+      updateFilters();
     });
   </script>
 </AppLayout>
-

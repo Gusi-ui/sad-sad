@@ -9,13 +9,6 @@ const account = Astro.locals.account;
 const workerId = account?.workerId ?? null;
 if (!workerId) return Astro.redirect('/unauthorized');
 
-const worker = await db()
-  .prepare('SELECT name FROM workers WHERE id = ?')
-  .bind(workerId)
-  .first<{ name: string }>();
-
-const workerName = worker?.name ?? 'EMPLEADO/A';
-
 const currentWeek = getIsoWeekKey(new globalThis.Date());
 const weekKey = String(Astro.url.searchParams.get('week') ?? currentWeek);
 const weekDates = datesOfIsoWeek(weekKey);
@@ -191,4 +184,3 @@ const nextWeekKey = `${nextYearNum}-W${String(nextWeekNum).padStart(2, '0')}`;
     </div>
   </div>
 </WorkerLayout>
-
