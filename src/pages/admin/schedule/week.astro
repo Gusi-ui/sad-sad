@@ -3,6 +3,8 @@ import AppLayout from '../../../layouts/AppLayout.astro';
 import { db } from '../../../lib/db';
 import { datesOfIsoWeek, getIsoWeekKey, toYmd } from '../../../lib/dates';
 import { randomId } from '../../../lib/crypto';
+import { bumpManyWorkerAssignmentsVersions, bumpWorkerAssignmentsVersion } from '../../../lib/realtime';
+import { sendPushToWorkerIds } from '../../../lib/push';
 
 export const prerender = false;
 
@@ -138,22 +140,52 @@ if (Astro.request.method === 'POST') {
   const formData = await Astro.request.formData();
   const action = String(formData.get('_action') ?? 'generate');
 
+  let assignmentsChanged = false;
+  const cf = Astro.locals.cfContext;
+  const queuePush = (workerIds: string[]) => {
+    // No bloquea la respuesta; si push no está configurado, no hace nada.
+    cf?.waitUntil(
+      sendPushToWorkerIds(database, workerIds, {
+        title: 'Planificación actualizada',
+        body: 'Se han aplicado cambios en tu agenda. Entra para verlos.',
+        url: '/w/planning'
+      }) as any
+    );
+  };
+
   if (action === 'assign') {
     const assignmentId = String(formData.get('assignmentId') ?? '').trim();
     const workerIdRaw = String(formData.get('workerId') ?? '').trim();
     const workerId = workerIdRaw === '' ? null : workerIdRaw;
 
     if (assignmentId) {
+      const prev = await database
+        .prepare(`SELECT assigned_worker_id FROM assignments WHERE id = ? LIMIT 1`)
+        .bind(assignmentId)
+        .first<{ assigned_worker_id: string | null }>();
+
       await database
         .prepare(`UPDATE assignments SET assigned_worker_id = ? WHERE id = ?`)
         .bind(workerId, assignmentId)
         .run();
+      assignmentsChanged = true;
+
+      const prevWorkerId = prev?.assigned_worker_id ?? null;
+      if (prevWorkerId) await bumpWorkerAssignmentsVersion(database, prevWorkerId);
+      if (workerId) await bumpWorkerAssignmentsVersion(database, workerId);
+
+      queuePush([prevWorkerId ?? '', workerId ?? '']);
     }
     return Astro.redirect(`/admin/schedule/week?week=${weekKey}`);
   }
 
   if (action === 'auto_assign') {
     await autoAssignWeekRange(toYmd(new Date(weekDates[0])), toYmd(new Date(weekDates[6])));
+    const allWorkers = await database
+      .prepare(`SELECT id FROM workers WHERE active = 1`)
+      .all<{ id: string }>();
+    await bumpManyWorkerAssignmentsVersions(database, allWorkers.results.map((w) => w.id));
+    queuePush(allWorkers.results.map((w) => w.id));
     return Astro.redirect(`/admin/schedule/week?week=${weekKey}`);
   }
 
@@ -162,6 +194,7 @@ if (Astro.request.method === 'POST') {
       .prepare(`DELETE FROM assignments WHERE source = 'template' AND status != 'done' AND date >= ? AND date <= ?`)
       .bind(toYmd(new Date(weekDates[0])), toYmd(new Date(weekDates[6])))
       .run();
+    assignmentsChanged = true;
   }
 
   const dates = weekDates.map((d) => ({ d, ymd: toYmd(new Date(d)) }));
@@ -220,14 +253,23 @@ if (Astro.request.method === 'POST') {
           )
           .bind(randomId(), ymd, u.id, t.id, kind === 'fin_semana' ? 'fin_semana' : t.kind, t.start_time, t.end_time)
           .run();
+        assignmentsChanged = true;
       }
     }
   }
 
   if (action === 'generate' || action === 'regenerate_week') {
     await autoAssignWeekRange(toYmd(new Date(weekDates[0])), toYmd(new Date(weekDates[6])));
+    assignmentsChanged = true;
   }
 
+  if (assignmentsChanged) {
+    const allWorkers = await database
+      .prepare(`SELECT id FROM workers WHERE active = 1`)
+      .all<{ id: string }>();
+    await bumpManyWorkerAssignmentsVersions(database, allWorkers.results.map((w) => w.id));
+    queuePush(allWorkers.results.map((w) => w.id));
+  }
   return Astro.redirect(`/admin/schedule/week?week=${weekKey}`);
 }
 

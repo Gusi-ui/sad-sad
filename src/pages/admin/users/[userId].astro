@@ -4,6 +4,8 @@ import { db } from '../../../lib/db';
 import { randomId } from '../../../lib/crypto';
 import { toYmd } from '../../../lib/dates';
 import { computeUserMonthBreakdown, formatHours, minutesToHours } from '../../../lib/month-hours';
+import { bumpManyWorkerAssignmentsVersions } from '../../../lib/realtime';
+import { sendPushToWorkerIds } from '../../../lib/push';
 
 export const prerender = false;
 
@@ -14,6 +16,16 @@ if (Astro.request.method === 'POST') {
   const formData = await Astro.request.formData();
   const action = String(formData.get('_action') ?? '');
   const database = db();
+  const cf = Astro.locals.cfContext;
+  const queuePush = (workerIds: string[]) => {
+    cf?.waitUntil(
+      sendPushToWorkerIds(database, workerIds, {
+        title: 'Planificación actualizada',
+        body: 'Se han aplicado cambios en tu agenda. Entra para verlos.',
+        url: '/w/planning'
+      }) as any
+    );
+  };
 
   if (action === 'update_user') {
     const name = String(formData.get('name') ?? '').trim();
@@ -80,6 +92,15 @@ if (Astro.request.method === 'POST') {
   if (action === 'delete_template') {
     const templateId = String(formData.get('templateId') ?? '').trim();
     if (templateId) {
+      const affected = await database
+        .prepare(
+          `SELECT DISTINCT assigned_worker_id as id
+           FROM assignments
+           WHERE template_id = ? AND status != 'done' AND assigned_worker_id IS NOT NULL`
+        )
+        .bind(templateId)
+        .all<{ id: string }>();
+
       await database
         .prepare(`DELETE FROM assignments WHERE template_id = ? AND status != 'done'`)
         .bind(templateId)
@@ -98,19 +119,43 @@ if (Astro.request.method === 'POST') {
           .bind(userId)
           .run();
       }
+      const ids = affected.results.map((r) => r.id);
+      await bumpManyWorkerAssignmentsVersions(database, ids);
+      queuePush(ids);
     }
     return Astro.redirect(`/admin/users/${userId}`);
   }
 
   if (action === 'clean_orphan_assignments') {
+    const affected = await database
+      .prepare(
+        `SELECT DISTINCT assigned_worker_id as id
+         FROM assignments
+         WHERE service_user_id = ? AND template_id IS NULL AND source = 'manual' AND status != 'done' AND assigned_worker_id IS NOT NULL`
+      )
+      .bind(userId)
+      .all<{ id: string }>();
+
     await database
       .prepare(`DELETE FROM assignments WHERE service_user_id = ? AND template_id IS NULL AND source = 'manual' AND status != 'done'`)
       .bind(userId)
       .run();
+    const ids = affected.results.map((r) => r.id);
+    await bumpManyWorkerAssignmentsVersions(database, ids);
+    queuePush(ids);
     return Astro.redirect(`/admin/users/${userId}`);
   }
 
   if (action === 'sync_user_schedule') {
+    const affected = await database
+      .prepare(
+        `SELECT DISTINCT assigned_worker_id as id
+         FROM assignments
+         WHERE service_user_id = ? AND source = 'template' AND status != 'done' AND assigned_worker_id IS NOT NULL`
+      )
+      .bind(userId)
+      .all<{ id: string }>();
+
     await database
       .prepare(`DELETE FROM assignments WHERE service_user_id = ? AND source = 'template' AND status != 'done'`)
       .bind(userId)
@@ -161,6 +206,9 @@ if (Astro.request.method === 'POST') {
           .run();
       }
     }
+    const ids = affected.results.map((r) => r.id);
+    await bumpManyWorkerAssignmentsVersions(database, ids);
+    queuePush(ids);
     return Astro.redirect(`/admin/users/${userId}`);
   }
 
@@ -173,9 +221,21 @@ if (Astro.request.method === 'POST') {
   }
 
   if (action === 'delete_user') {
+    const affected = await database
+      .prepare(
+        `SELECT DISTINCT assigned_worker_id as id
+         FROM assignments
+         WHERE service_user_id = ? AND assigned_worker_id IS NOT NULL`
+      )
+      .bind(userId)
+      .all<{ id: string }>();
+
     await database.prepare(`DELETE FROM assignments WHERE service_user_id = ?`).bind(userId).run();
     await database.prepare(`DELETE FROM service_templates WHERE service_user_id = ?`).bind(userId).run();
     await database.prepare(`DELETE FROM service_users WHERE id = ?`).bind(userId).run();
+    const ids = affected.results.map((r) => r.id);
+    await bumpManyWorkerAssignmentsVersions(database, ids);
+    queuePush(ids);
     return Astro.redirect('/admin/users');
   }
 }

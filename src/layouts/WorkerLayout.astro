@@ -1,11 +1,18 @@
 ---
 import '../styles/global.css';
+import { db } from '../lib/db';
+import { getWorkerAssignmentsVersion } from '../lib/realtime';
 
 type Props = {
   title: string;
 };
 
 const { title } = Astro.props;
+
+// Solo worker paths usan este layout, pero lo dejamos defensivo.
+const account = Astro.locals.account;
+const workerId = account?.workerId ?? null;
+const assignmentsVersion = workerId ? await getWorkerAssignmentsVersion(db(), workerId) : 0;
 ---
 
 <!doctype html>
@@ -15,11 +22,345 @@ const { title } = Astro.props;
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
     <title>{title}</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#1E3A8A" />
+    <!-- iOS PWA -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="SAD-SAD" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="167x167" href="/icons/apple-touch-icon-167.png" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/icons/apple-touch-icon-152.png" />
   </head>
   <body class="min-h-dvh bg-[#F5F5F5] text-zinc-900 antialiased font-sans">
     <div class="mx-auto w-full max-w-md bg-white min-h-dvh shadow-xl">
+      <div id="sad-toast" class="hidden sticky top-0 z-50 mx-3 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 shadow-sm">
+        <div class="flex items-start justify-between gap-3">
+          <div class="font-semibold">Tienes una actualización en tu planificación.</div>
+          <button type="button" id="sad-toast-close" class="text-amber-900/70 hover:text-amber-900" aria-label="Cerrar">✕</button>
+        </div>
+        <div class="mt-2 flex gap-2">
+          <button type="button" id="sad-toast-refresh" class="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-700">
+            Actualizar
+          </button>
+          <a href="/w/planning" class="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100">
+            Ver planificación
+          </a>
+        </div>
+      </div>
+
       <slot />
+
+      <div id="sad-alerts-banner" class="hidden fixed bottom-3 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2 px-3">
+        <div class="rounded-2xl border border-zinc-200 bg-white p-3 shadow-lg">
+          <div class="text-sm font-semibold text-zinc-900">Activar avisos de cambios</div>
+          <div class="mt-1 text-xs text-zinc-600">
+            Te avisaremos con sonido y/o notificación cuando el admin actualice tu planificación.
+          </div>
+          <div class="mt-3 flex gap-2">
+            <button type="button" id="sad-enable-alerts" class="flex-1 rounded-xl bg-zinc-900 px-3 py-2 text-xs font-bold text-white hover:bg-zinc-800">
+              Activar
+            </button>
+            <button type="button" id="sad-dismiss-alerts" class="flex-1 rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50">
+              Ahora no
+            </button>
+          </div>
+          <button type="button" id="sad-test-push" class="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50">
+            Probar notificación push
+          </button>
+        </div>
+      </div>
+
+      <!-- Banner iOS: instrucciones para instalar como app (necesario para push real) -->
+      <div id="sad-ios-install" class="hidden fixed bottom-3 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2 px-3">
+        <div class="rounded-2xl border border-zinc-200 bg-white p-3 shadow-lg">
+          <div class="text-sm font-semibold text-zinc-900">Activar notificaciones en iPhone/iPad</div>
+          <div class="mt-1 text-xs text-zinc-600 leading-snug">
+            En iOS, las notificaciones push solo funcionan si instalas la app en la pantalla de inicio.
+          </div>
+          <ol class="mt-3 space-y-1 text-xs text-zinc-700 list-decimal pl-4">
+            <li>Abre esta web en <strong>Safari</strong>.</li>
+            <li>Pulsa el botón <strong>Compartir</strong> (⬆︎).</li>
+            <li>Selecciona <strong>Añadir a pantalla de inicio</strong>.</li>
+            <li>Abre la app desde el icono y activa los avisos.</li>
+          </ol>
+          <div class="mt-3 flex gap-2">
+            <button type="button" id="sad-ios-install-ok" class="flex-1 rounded-xl bg-zinc-900 px-3 py-2 text-xs font-bold text-white hover:bg-zinc-800">
+              Entendido
+            </button>
+            <a href="/w" class="flex-1 text-center rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50">
+              Ir al inicio
+            </a>
+          </div>
+        </div>
+      </div>
     </div>
+
+    <script is:inline define:vars={{ assignmentsVersion }}>
+      // Avisos (sonido + notificación si el navegador lo permite).
+      const STORAGE_KEY = 'sad_alerts_enabled_v1';
+      const isEnabled = () => localStorage.getItem(STORAGE_KEY) === '1';
+      const setEnabled = (v) => localStorage.setItem(STORAGE_KEY, v ? '1' : '0');
+
+      const banner = document.getElementById('sad-alerts-banner');
+      const btnEnable = document.getElementById('sad-enable-alerts');
+      const btnDismiss = document.getElementById('sad-dismiss-alerts');
+      const btnTestPush = document.getElementById('sad-test-push');
+      const iosInstall = document.getElementById('sad-ios-install');
+      const iosInstallOk = document.getElementById('sad-ios-install-ok');
+
+      const toast = document.getElementById('sad-toast');
+      const toastClose = document.getElementById('sad-toast-close');
+      const toastRefresh = document.getElementById('sad-toast-refresh');
+
+      const showToast = () => { if (toast) toast.classList.remove('hidden'); };
+      const hideToast = () => { if (toast) toast.classList.add('hidden'); };
+
+      if (toastClose) toastClose.addEventListener('click', hideToast);
+      if (toastRefresh) toastRefresh.addEventListener('click', () => location.reload());
+
+      const maybeShowBanner = () => {
+        if (!banner) return;
+        if (!isEnabled()) banner.classList.remove('hidden');
+      };
+
+      // iOS detection + “installed as PWA” check
+      const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+      const isStandalone = () =>
+        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+        /** @type {any} */ (navigator).standalone === true;
+
+      const IOS_INSTALL_KEY = 'sad_ios_install_dismissed_v1';
+      const dismissedIosInstall = () => localStorage.getItem(IOS_INSTALL_KEY) === '1';
+      const dismissIosInstall = () => localStorage.setItem(IOS_INSTALL_KEY, '1');
+
+      const showIosInstallIfNeeded = () => {
+        if (!iosInstall) return;
+        // Solo si iOS, no instalado, y el usuario quiere avisos (o está intentando activarlos)
+        if (isIos() && !isStandalone() && !dismissedIosInstall()) {
+          iosInstall.classList.remove('hidden');
+        }
+      };
+
+      if (iosInstallOk) {
+        iosInstallOk.addEventListener('click', () => {
+          dismissIosInstall();
+          iosInstall?.classList.add('hidden');
+        });
+      }
+
+      // Sonido (WebAudio). OJO: puede requerir una interacción previa del usuario.
+      let audioUnlocked = false;
+      let audioCtx = null;
+      const unlockAudio = async () => {
+        try {
+          const AnyWindow = /** @type {any} */ (window);
+          if (!audioCtx) audioCtx = new (window.AudioContext || AnyWindow.webkitAudioContext)();
+          if (audioCtx.state === 'suspended') await audioCtx.resume();
+          audioUnlocked = true;
+        } catch {
+          audioUnlocked = false;
+        }
+      };
+
+      const beep = async () => {
+        if (!isEnabled()) return;
+        try {
+          await unlockAudio();
+          if (!audioUnlocked || !audioCtx) return;
+          const o = audioCtx.createOscillator();
+          const g = audioCtx.createGain();
+          o.type = 'sine';
+          o.frequency.value = 880;
+          g.gain.value = 0.06;
+          o.connect(g);
+          g.connect(audioCtx.destination);
+          o.start();
+          setTimeout(() => { try { o.stop(); } catch {} }, 220);
+        } catch {}
+      };
+
+      const notify = async () => {
+        if (!isEnabled()) return;
+
+        // Vibración (móvil) si está disponible
+        try { if (navigator.vibrate) navigator.vibrate([120, 80, 120]); } catch {}
+
+        await beep();
+        showToast();
+
+        // Notificación del navegador (solo si el usuario dio permiso)
+        try {
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('Planificación actualizada', {
+              body: 'Se han aplicado cambios en tu agenda. Abre la app para verlos.',
+              tag: 'sad-planning-update'
+            });
+          }
+        } catch {}
+      };
+
+      // Exponemos una función global para que otras páginas (si hiciera falta) la reutilicen.
+      window.__sadNotifyPlanningUpdate = notify;
+
+      // Config UI (activar avisos)
+      if (btnEnable) {
+        btnEnable.addEventListener('click', async () => {
+          setEnabled(true);
+          if (banner) banner.classList.add('hidden');
+          await unlockAudio();
+          try {
+            if ('Notification' in window && Notification.permission === 'default') {
+              await Notification.requestPermission();
+            }
+          } catch {}
+
+          // Intentar habilitar push real (Service Worker + PushManager).
+          try { await window.__sadEnsurePushSubscription?.(); } catch {}
+        });
+      }
+      if (btnDismiss) {
+        btnDismiss.addEventListener('click', () => {
+          setEnabled(false);
+          if (banner) banner.classList.add('hidden');
+        });
+      }
+
+      if (btnTestPush) {
+        btnTestPush.addEventListener('click', async () => {
+          try {
+            // Asegura suscripción antes de probar
+            await ensurePushSubscription();
+            await fetch('/api/push/test', { method: 'POST' });
+          } catch {}
+        });
+      }
+
+      maybeShowBanner();
+
+      // --- PUSH REAL (Service Worker + PushManager) ---
+      const urlBase64ToUint8Array = (base64String) => {
+        // Soporta claves VAPID en base64url.
+        const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+        const rawData = atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+        for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+        return outputArray;
+      };
+
+      const ensurePushSubscription = async () => {
+        // Push solo en contextos seguros: https o localhost.
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) return { ok: false, reason: 'unsupported' };
+        if (!(location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+          return { ok: false, reason: 'insecure' };
+        }
+
+        // Solo si el usuario activó avisos.
+        if (!isEnabled()) return { ok: false, reason: 'disabled' };
+
+        // En iOS, el push real requiere instalación como PWA.
+        if (isIos() && !isStandalone()) {
+          showIosInstallIfNeeded();
+          return { ok: false, reason: 'ios_not_installed' };
+        }
+
+        // Obtener public key
+        const pkRes = await fetch('/api/push/public-key', { headers: { accept: 'application/json' } });
+        const pkData = await pkRes.json().catch(() => ({}));
+        const publicKey = pkData?.publicKey;
+        if (!publicKey) return { ok: false, reason: 'not_configured' };
+
+        const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+        const current = await reg.pushManager.getSubscription();
+        const sub =
+          current ??
+          (await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(publicKey)
+          }));
+
+        const payload = sub.toJSON();
+        await fetch('/api/push/subscribe', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        return { ok: true };
+      };
+
+      window.__sadEnsurePushSubscription = ensurePushSubscription;
+
+      // Al cargar, si ya estaban activados, intentamos suscribir sin molestar.
+      // (Si el navegador requiere permiso/interacción, simplemente fallará y no bloquea nada).
+      ensurePushSubscription().catch(() => {});
+      // Si es iOS y no está instalada, muestra ayuda una vez.
+      showIosInstallIfNeeded();
+
+      // Si llega un push con la app abierta, el SW nos manda un mensaje.
+      // Evitamos duplicados con el long-poll manteniendo un timestamp.
+      let lastPushTs = 0;
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.addEventListener('message', async (ev) => {
+          try {
+            if (ev?.data?.type !== 'planning_update') return;
+            lastPushTs = Date.now();
+            await notify();
+            const p = location.pathname;
+            const isPlanning =
+              p === '/w/today' ||
+              p.startsWith('/w/day/') ||
+              p === '/w/week' ||
+              p === '/w/month' ||
+              p === '/w/planning' ||
+              p.startsWith('/w/planning/');
+            if (isPlanning) setTimeout(() => location.reload(), 900);
+          } catch {}
+        });
+      }
+
+      // Listener “casi tiempo real” (long-polling). Solo avisa a esta trabajadora.
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      let v = Number(assignmentsVersion) || 0;
+
+      async function loop() {
+        while (true) {
+          try {
+            const res = await fetch(`/api/realtime/assignments?since=${v}`, {
+              headers: { accept: 'application/json' }
+            });
+            if (!res.ok) throw new Error('bad_status');
+            const data = await res.json();
+            const next = Number(data?.version);
+            if (Number.isFinite(next) && next > v) {
+              v = next;
+              // Si el push acaba de llegar, evitamos duplicar el aviso por long-poll.
+              if (Date.now() - lastPushTs > 5000) {
+                await notify();
+              }
+
+              // Si está en planificación, refrescamos automáticamente tras el aviso.
+              const p = location.pathname;
+              const isPlanning =
+                p === '/w/today' ||
+                p.startsWith('/w/day/') ||
+                p === '/w/week' ||
+                p === '/w/month' ||
+                p === '/w/planning' ||
+                p.startsWith('/w/planning/');
+              if (isPlanning) setTimeout(() => location.reload(), 900);
+            } else if (Number.isFinite(next)) {
+              v = next;
+            }
+          } catch {
+            await sleep(1500);
+          }
+        }
+      }
+
+      loop();
+    </script>
   </body>
 </html>
-

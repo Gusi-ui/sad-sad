@@ -16,11 +16,13 @@
     "seed:local": "node ./scripts/seed-local.mjs",
     "seed:remote": "D1_REMOTE=1 node ./scripts/seed-local.mjs",
     "create:admin": "node ./scripts/create-admin.mjs",
+    "push:vapid": "npx @pushforge/builder vapid",
     "check": "astro check && npm run build"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.8",
     "@astrojs/cloudflare": "^13.1.8",
+    "@pushforge/builder": "^2.0.4",
     "@tailwindcss/vite": "^4.2.2",
     "astro": "^6.1.5",
     "tailwindcss": "^4.2.2",

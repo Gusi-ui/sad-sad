@@ -9,6 +9,7 @@ import {
   minutesToHours,
   pickContractForMonth
 } from '../../../lib/month-hours';
+import { bumpWorkerAssignmentsVersion } from '../../../lib/realtime';
 
 export const prerender = false;
 
@@ -36,6 +37,7 @@ if (Astro.request.method === 'POST') {
     await database.prepare(`UPDATE service_users SET preferred_worker_id = NULL WHERE preferred_worker_id = ?`).bind(workerId).run();
     await database.prepare(`UPDATE service_users SET preferred_weekend_worker_id = NULL WHERE preferred_weekend_worker_id = ?`).bind(workerId).run();
     await database.prepare(`UPDATE assignments SET assigned_worker_id = NULL WHERE assigned_worker_id = ?`).bind(workerId).run();
+    await bumpWorkerAssignmentsVersion(database, workerId);
     await database.prepare(`DELETE FROM sessions WHERE account_id IN (SELECT id FROM accounts WHERE worker_id = ?)`).bind(workerId).run();
     await database.prepare(`DELETE FROM worker_contracts WHERE worker_id = ?`).bind(workerId).run();
     await database.prepare(`DELETE FROM accounts WHERE worker_id = ?`).bind(workerId).run();

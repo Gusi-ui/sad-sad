@@ -1,2 +1,8 @@
 SESSION_SECRET="dev-secret-cambia-esto"
 
+# Web Push (VAPID)
+# Genera claves con: npm run push:vapid
+# Pega aquí la public key y la private key (JWK / JSON).
+VAPID_PUBLIC_KEY=""
+VAPID_PRIVATE_KEY=""
+VAPID_SUBJECT="mailto:admin@example.com"

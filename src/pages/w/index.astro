@@ -1,14 +1,24 @@
 ---
 import WorkerLayout from '../../layouts/WorkerLayout.astro';
+import { db } from '../../lib/db';
 
 export const prerender = false;
+
+const account = Astro.locals.account;
+const workerId = account?.workerId ?? null;
+if (!workerId) return Astro.redirect('/unauthorized');
+
+const worker = await db()
+  .prepare(`SELECT name FROM workers WHERE id = ? LIMIT 1`)
+  .bind(workerId)
+  .first<{ name: string }>();
+
+const workerName = worker?.name ?? 'TRABAJADORA';
 ---
 
 <WorkerLayout title="SAD-SAD">
   <header class="flex items-center justify-between bg-[#1E3A8A] px-5 py-4 shadow-md">
-    <div class="flex items-center gap-3">
-      <h1 class="text-xl font-bold text-white tracking-wide">SAD-SAD</h1>
-    </div>
+    <h1 class="text-xl font-bold text-white tracking-wide">SAD-SAD</h1>
     <form method="post" action="/api/auth/logout" class="flex items-center">
       <button class="text-white/80 hover:text-white transition-colors" aria-label="Cerrar sesión">
         <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
@@ -16,56 +26,66 @@ export const prerender = false;
     </form>
   </header>
 
-  <nav class="mt-4 bg-white border-y border-zinc-200">
+  <section class="px-4 pt-4">
+    <div class="rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
+      <div class="text-xs font-semibold uppercase tracking-wider text-zinc-500">Pantalla principal</div>
+      <div class="mt-1 text-lg font-extrabold text-zinc-900">
+        Hola, <span class="text-[#1E3A8A]">{workerName}</span>
+      </div>
+      <div class="mt-1 text-xs text-zinc-600">Accesos rápidos a tu planificación y avisos.</div>
+    </div>
+  </section>
+
+  <nav class="mt-3 bg-white border-y border-zinc-200">
     <div class="divide-y divide-zinc-100">
       
-      <a class="flex items-center justify-between p-6 hover:bg-zinc-50 active:bg-zinc-100 transition-colors" href="/w/planning">
-        <div class="flex items-center gap-5">
-          <div class="rounded-full bg-blue-50 p-3 text-[#0284C7]">
-            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+      <a class="flex items-center justify-between px-5 py-4 hover:bg-zinc-50 active:bg-zinc-100 transition-colors" href="/w/planning">
+        <div class="flex items-center gap-4">
+          <div class="rounded-full bg-blue-50 p-2.5 text-[#0284C7]">
+            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
           </div>
-          <span class="text-xl font-medium text-zinc-800">Mi planificación</span>
+          <span class="text-lg font-semibold text-zinc-800">Mi planificación</span>
         </div>
-        <svg class="text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        <svg class="text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
       </a>
 
-      <button id="btn-iniciar-servicio" class="w-full flex items-center justify-between p-6 hover:bg-zinc-50 active:bg-zinc-100 transition-colors group">
-        <div class="flex items-center gap-5">
-          <div id="icon-servicio" class="rounded-full bg-emerald-50 p-3 text-emerald-600 transition-colors duration-300">
-            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+      <button id="btn-iniciar-servicio" class="w-full flex items-center justify-between px-5 py-4 hover:bg-zinc-50 active:bg-zinc-100 transition-colors group">
+        <div class="flex items-center gap-4">
+          <div id="icon-servicio" class="rounded-full bg-emerald-50 p-2.5 text-emerald-600 transition-colors duration-300">
+            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
           </div>
-          <span id="text-servicio" class="text-xl font-medium text-zinc-800 transition-colors duration-300">Iniciar servicio</span>
+          <span id="text-servicio" class="text-lg font-semibold text-zinc-800 transition-colors duration-300">Iniciar servicio</span>
         </div>
       </button>
 
-      <a class="flex items-center justify-between p-6 hover:bg-zinc-50 active:bg-zinc-100 transition-colors" href="#">
-        <div class="flex items-center gap-5">
-          <div class="rounded-full bg-blue-50 p-3 text-[#0284C7]">
-            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+      <a class="flex items-center justify-between px-5 py-4 hover:bg-zinc-50 active:bg-zinc-100 transition-colors" href="#">
+        <div class="flex items-center gap-4">
+          <div class="rounded-full bg-blue-50 p-2.5 text-[#0284C7]">
+            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
           </div>
-          <span class="text-xl font-medium text-zinc-800">Información empresa</span>
+          <span class="text-lg font-semibold text-zinc-800">Información empresa</span>
         </div>
-        <svg class="text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        <svg class="text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
       </a>
 
-      <a class="flex items-center justify-between p-6 hover:bg-zinc-50 active:bg-zinc-100 transition-colors" href="#">
-        <div class="flex items-center gap-5">
-          <div class="rounded-full bg-blue-50 p-3 text-[#0284C7]">
-            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+      <a class="flex items-center justify-between px-5 py-4 hover:bg-zinc-50 active:bg-zinc-100 transition-colors" href="#">
+        <div class="flex items-center gap-4">
+          <div class="rounded-full bg-blue-50 p-2.5 text-[#0284C7]">
+            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
           </div>
-          <span class="text-xl font-medium text-zinc-800">Mis usuarios/as</span>
+          <span class="text-lg font-semibold text-zinc-800">Mis usuarios/as</span>
         </div>
-        <svg class="text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        <svg class="text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
       </a>
 
-      <a class="flex items-center justify-between p-6 hover:bg-zinc-50 active:bg-zinc-100 transition-colors" href="#">
-        <div class="flex items-center gap-5">
-          <div class="rounded-full bg-blue-50 p-3 text-[#0284C7]">
-            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+      <a class="flex items-center justify-between px-5 py-4 hover:bg-zinc-50 active:bg-zinc-100 transition-colors" href="#">
+        <div class="flex items-center gap-4">
+          <div class="rounded-full bg-blue-50 p-2.5 text-[#0284C7]">
+            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
           </div>
-          <span class="text-xl font-medium text-zinc-800">Mensajería <span class="ml-1 text-sm font-bold bg-red-500 text-white px-2 py-0.5 rounded-full">1</span></span>
+          <span class="text-lg font-semibold text-zinc-800">Mensajería <span class="ml-1 text-xs font-bold bg-red-500 text-white px-2 py-0.5 rounded-full">1</span></span>
         </div>
-        <svg class="text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        <svg class="text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
       </a>
 
     </div>
@@ -98,4 +118,3 @@ export const prerender = false;
     }
   </script>
 </WorkerLayout>
-
