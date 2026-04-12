@@ -1,0 +1,49 @@
+---
+import AppLayout from '../../../layouts/AppLayout.astro';
+
+export const prerender = false;
+
+const now = new Date();
+const ymParam = String(Astro.url.searchParams.get('ym') ?? '').trim(); // YYYY-MM
+const parsedYear = ymParam ? Number(ymParam.split('-')[0]) : Number(Astro.url.searchParams.get('year') ?? now.getFullYear());
+const parsedMonth = ymParam ? Number(ymParam.split('-')[1]) : Number(Astro.url.searchParams.get('month') ?? now.getMonth() + 1);
+const safeYear = Number.isFinite(parsedYear) ? parsedYear : now.getFullYear();
+const safeMonth = Number.isFinite(parsedMonth) && parsedMonth >= 1 && parsedMonth <= 12 ? parsedMonth : now.getMonth() + 1;
+const monthLabel = `${safeYear}-${String(safeMonth).padStart(2, '0')}`;
+---
+<AppLayout title="Balances | Admin">
+  <div class="flex items-center justify-between gap-4">
+  <div class="flex items-center justify-between gap-4">
+    <div>
+      <a class="text-sm font-medium text-zinc-700 underline decoration-zinc-300" href="/admin">← Volver al panel</a>
+      <h1 class="mt-2 text-2xl font-semibold tracking-tight">Balances</h1>
+      <p class="mt-1 text-sm text-zinc-600">Revisión de horas planificadas (diarias, semanales y mensuales).</p>
+    </div>
+  </div>
+
+  <form class="mt-6 flex flex-wrap items-end gap-3" method="get">
+    <label class="block">
+      <span class="text-sm font-medium text-zinc-700">Mes</span>
+      <input class="mt-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm" type="month" name="ym" value={monthLabel} />
+    </label>
+    <button class="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white">Ver</button>
+  </form>
+
+  <div class="mt-6 grid gap-4 md:grid-cols-2">
+    <a
+      class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm hover:border-emerald-300 transition-colors"
+      href={`/admin/balances/users?year=${safeYear}&month=${safeMonth}`}
+    >
+      <div class="text-sm font-semibold text-zinc-900">Usuarios/as</div>
+      <div class="mt-1 text-sm text-zinc-600">Cuota mensual vs horas planificadas y desglose por día/semana.</div>
+    </a>
+
+    <a
+      class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm hover:border-indigo-300 transition-colors"
+      href={`/admin/balances/workers?year=${safeYear}&month=${safeMonth}`}
+    >
+      <div class="text-sm font-semibold text-zinc-900">Trabajadoras</div>
+      <div class="mt-1 text-sm text-zinc-600">Contrato vs horas planificadas y desglose por día/semana.</div>
+    </a>
+  </div>
+</AppLayout>

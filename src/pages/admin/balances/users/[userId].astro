@@ -1,0 +1,108 @@
+---
+import AppLayout from '../../../../layouts/AppLayout.astro';
+import { db } from '../../../../lib/db';
+import { computeUserBalanceDetail, hours } from '../../../../lib/balances';
+
+export const prerender = false;
+
+const { userId } = Astro.params;
+if (!userId) return Astro.redirect('/admin/balances/users');
+
+const now = new Date();
+const year = Number(Astro.url.searchParams.get('year') ?? now.getFullYear());
+const month = Number(Astro.url.searchParams.get('month') ?? now.getMonth() + 1);
+const safeYear = Number.isFinite(year) ? year : now.getFullYear();
+const safeMonth = Number.isFinite(month) && month >= 1 && month <= 12 ? month : now.getMonth() + 1;
+
+const detail = await computeUserBalanceDetail(db(), userId, safeYear, safeMonth);
+if (!detail) return Astro.redirect('/admin/balances/users');
+
+const fmt = (h: number) => `${h.toFixed(2)} h`;
+const weekdayName = (d: number) => ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][d] ?? '';
+const kindLabel = (k: string) => (k === 'laborable' ? 'Laborable' : k === 'festivo' ? 'Festivo' : 'Fin de semana');
+const sourceLabel = (s: string) => (s === 'assignments' ? 'Asignado' : s === 'templates' ? 'Plantilla' : '—');
+---
+
+<AppLayout title={`Balance ${detail.user.name} | Admin`}>
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <a class="text-sm font-medium text-zinc-700 underline decoration-zinc-300" href={`/admin/balances/users?year=${safeYear}&month=${safeMonth}`}>
+        ← Volver a usuarios
+      </a>
+      <h1 class="mt-2 text-2xl font-semibold tracking-tight">{detail.user.name}</h1>
+      <p class="mt-1 text-sm text-zinc-600">Mes: {safeYear}-{String(safeMonth).padStart(2, '0')}</p>
+    </div>
+  </div>
+
+  <div class="mt-6 grid gap-4 md:grid-cols-3">
+    <div class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+      <div class="text-xs uppercase tracking-wider text-zinc-500">Cuota mensual</div>
+      <div class="mt-1 text-xl font-bold">{detail.quotaHours === null ? '—' : `${detail.quotaHours} h`}</div>
+    </div>
+    <div class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+      <div class="text-xs uppercase tracking-wider text-zinc-500">Horas planificadas</div>
+      <div class="mt-1 text-xl font-bold">{fmt(hours(detail.plannedMinutes))}</div>
+    </div>
+    <div class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+      <div class="text-xs uppercase tracking-wider text-zinc-500">Delta (planificado - cuota)</div>
+      <div class={`mt-1 text-xl font-bold ${detail.deltaHours === null ? '' : detail.deltaHours > 0.01 ? 'text-rose-700' : detail.deltaHours < -0.01 ? 'text-emerald-700' : ''}`}>
+        {detail.deltaHours === null ? '—' : `${detail.deltaHours > 0 ? '+' : ''}${detail.deltaHours.toFixed(2)} h`}
+      </div>
+    </div>
+  </div>
+
+  <section class="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+    <h2 class="text-sm font-semibold">Resumen semanal (ISO)</h2>
+    <div class="mt-3 overflow-hidden rounded-xl border border-zinc-200">
+      <table class="w-full text-sm">
+        <thead class="bg-zinc-50 text-left text-xs uppercase tracking-wider text-zinc-600">
+          <tr>
+            <th class="px-3 py-2">Semana</th>
+            <th class="px-3 py-2">Rango</th>
+            <th class="px-3 py-2">Planificado</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-zinc-100">
+          {detail.weeks.map((w) => (
+            <tr>
+              <td class="px-3 py-2 font-medium">{w.weekKey}</td>
+              <td class="px-3 py-2">{w.startYmd} → {w.endYmd}</td>
+              <td class="px-3 py-2">{fmt(hours(w.plannedMinutes))}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+    <h2 class="text-sm font-semibold">Detalle diario</h2>
+    <p class="mt-1 text-sm text-zinc-600">Incluye servicios planificados (aunque aún no se hayan realizado). Festivos cuentan como “festivo” aunque caigan en fin de semana.</p>
+    <div class="mt-3 overflow-hidden rounded-xl border border-zinc-200">
+      <table class="w-full text-sm">
+        <thead class="bg-zinc-50 text-left text-xs uppercase tracking-wider text-zinc-600">
+          <tr>
+            <th class="px-3 py-2">Día</th>
+            <th class="px-3 py-2">Tipo</th>
+            <th class="px-3 py-2">Origen</th>
+            <th class="px-3 py-2">Planificado</th>
+            <th class="px-3 py-2">Trabajadoras</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-zinc-100">
+          {detail.days.map((d) => (
+            <tr class={d.plannedMinutes > 0 ? '' : 'opacity-60'}>
+              <td class="px-3 py-2 font-medium">{weekdayName(d.weekday0to6)} {d.ymd}</td>
+              <td class="px-3 py-2">{kindLabel(d.kind)}</td>
+              <td class="px-3 py-2">{sourceLabel(d.source)}</td>
+              <td class="px-3 py-2">{fmt(hours(d.plannedMinutes))}</td>
+              <td class="px-3 py-2">
+                {d.workers.length === 0 ? '—' : d.workers.map((w) => w.name).join(', ')}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</AppLayout>

@@ -31,12 +31,14 @@ const isAdminRoute = pathname.startsWith('/admin') && pathname !== '/admin';
               <a href="/admin/workers" class={`hover:text-[#0284C7] transition-colors ${pathname.startsWith('/admin/workers') ? 'text-[#0284C7]' : 'text-zinc-600'}`}>Trabajadoras</a>
               <a href="/admin/users" class={`hover:text-emerald-600 transition-colors ${pathname.startsWith('/admin/users') ? 'text-emerald-600' : 'text-zinc-600'}`}>Usuarios/as</a>
               <a href="/admin/schedule/week" class={`hover:text-indigo-600 transition-colors ${pathname.startsWith('/admin/schedule') ? 'text-indigo-600' : 'text-zinc-600'}`}>Agenda</a>
+              <a href="/admin/balances" class={`hover:text-zinc-900 transition-colors ${pathname.startsWith('/admin/balances') ? 'text-zinc-900' : 'text-zinc-600'}`}>Balances</a>
             </nav>
           </div>
           <div class="md:hidden flex items-center gap-3">
              <a href="/admin/workers" class="text-xs font-medium text-zinc-600 hover:text-[#0284C7]">Trab.</a>
              <a href="/admin/users" class="text-xs font-medium text-zinc-600 hover:text-emerald-600">Usua.</a>
              <a href="/admin/schedule/week" class="text-xs font-medium text-zinc-600 hover:text-indigo-600">Agen.</a>
+             <a href="/admin/balances" class="text-xs font-medium text-zinc-600 hover:text-zinc-900">Bal.</a>
           </div>
         </div>
       </header>
@@ -46,4 +48,3 @@ const isAdminRoute = pathname.startsWith('/admin') && pathname !== '/admin';
     </main>
   </body>
 </html>
-

@@ -1,0 +1,100 @@
+---
+import AppLayout from '../../../layouts/AppLayout.astro';
+import { db } from '../../../lib/db';
+import { computeWorkersMinutesForMonth, hours } from '../../../lib/balances';
+import { pickContractForMonth } from '../../../lib/month-hours';
+
+export const prerender = false;
+
+const now = new Date();
+const year = Number(Astro.url.searchParams.get('year') ?? now.getFullYear());
+const month = Number(Astro.url.searchParams.get('month') ?? now.getMonth() + 1);
+const safeYear = Number.isFinite(year) ? year : now.getFullYear();
+const safeMonth = Number.isFinite(month) && month >= 1 && month <= 12 ? month : now.getMonth() + 1;
+
+const database = db();
+
+const workers = await database
+  .prepare(`SELECT id, name, active, worker_type FROM workers ORDER BY active DESC, name ASC`)
+  .all<{ id: string; name: string; active: number; worker_type: string }>();
+
+const contracts = await database
+  .prepare(`SELECT worker_id, hours_per_week, hours_per_month, start_date, end_date FROM worker_contracts`)
+  .all<{ worker_id: string; hours_per_week: number; hours_per_month: number | null; start_date: string; end_date: string | null }>();
+const contractsByWorker = new Map<string, typeof contracts.results>();
+for (const c of contracts.results) {
+  const arr = contractsByWorker.get(c.worker_id) ?? [];
+  arr.push(c);
+  contractsByWorker.set(c.worker_id, arr);
+}
+
+const minutesByWorker = await computeWorkersMinutesForMonth(database, safeYear, safeMonth);
+const fmt = (h: number) => `${h.toFixed(2)} h`;
+---
+
+<AppLayout title="Balances Trabajadoras | Admin">
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <a class="text-sm font-medium text-zinc-700 underline decoration-zinc-300" href="/admin/balances">← Volver a balances</a>
+      <h1 class="mt-2 text-2xl font-semibold tracking-tight">Balances — Trabajadoras</h1>
+      <p class="mt-1 text-sm text-zinc-600">Mes: {safeYear}-{String(safeMonth).padStart(2, '0')}</p>
+    </div>
+  </div>
+
+  <form class="mt-5 flex flex-wrap items-end gap-3" method="get">
+    <label class="block">
+      <span class="text-sm font-medium text-zinc-700">Año</span>
+      <input class="mt-1 w-28 rounded-lg border border-zinc-300 px-3 py-2 text-sm" type="number" name="year" value={safeYear} />
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium text-zinc-700">Mes</span>
+      <input class="mt-1 w-20 rounded-lg border border-zinc-300 px-3 py-2 text-sm" type="number" min="1" max="12" name="month" value={safeMonth} />
+    </label>
+    <button class="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white">Ver</button>
+  </form>
+
+  <div class="mt-6 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
+    <div class="border-b border-zinc-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+      Nota: el cómputo de trabajadoras se basa en <strong>assignments existentes</strong>. Si aún no has generado la agenda del mes, faltarán horas.
+      En el detalle puedes añadir minutos de desplazamiento por día, y se suma automáticamente 20 min de descanso por día con servicio.
+    </div>
+    <table class="w-full text-sm">
+      <thead class="bg-zinc-50 text-left text-xs uppercase tracking-wider text-zinc-600">
+        <tr>
+          <th class="px-4 py-3">Trabajadora</th>
+          <th class="px-4 py-3">Contrato semana</th>
+          <th class="px-4 py-3">Contrato mes</th>
+          <th class="px-4 py-3">Planificado</th>
+          <th class="px-4 py-3">Delta mes</th>
+          <th class="px-4 py-3"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-zinc-100">
+        {workers.results.map((w) => {
+          const mins = minutesByWorker.get(w.id) ?? 0;
+          const plannedH = hours(mins);
+          const contract = pickContractForMonth(contractsByWorker.get(w.id) ?? [], safeYear, safeMonth);
+          const weekH = contract?.hours_per_week ?? null;
+          const monthH = contract?.hours_per_month ?? null;
+          const delta = monthH === null ? null : plannedH - monthH;
+          return (
+            <tr class={w.active === 1 ? '' : 'opacity-60'}>
+              <td class="px-4 py-3 font-medium text-zinc-900">{w.name}</td>
+              <td class="px-4 py-3">{weekH === null ? '—' : `${weekH} h`}</td>
+              <td class="px-4 py-3">{monthH === null ? '—' : `${monthH} h`}</td>
+              <td class="px-4 py-3">{fmt(plannedH)}</td>
+              <td class={`px-4 py-3 ${delta === null ? '' : delta > 0.01 ? 'text-rose-700' : delta < -0.01 ? 'text-emerald-700' : 'text-zinc-700'}`}>
+                {delta === null ? '—' : `${delta > 0 ? '+' : ''}${delta.toFixed(2)} h`}
+              </td>
+              <td class="px-4 py-3 text-right">
+                <a class="text-[#0284C7] hover:underline" href={`/admin/balances/workers/${w.id}?year=${safeYear}&month=${safeMonth}`}>
+                  Ver detalle →
+                </a>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  </div>
+</AppLayout>
