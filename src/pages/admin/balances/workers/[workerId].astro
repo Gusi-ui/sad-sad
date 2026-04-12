@@ -3,6 +3,7 @@ import AppLayout from '../../../../layouts/AppLayout.astro';
 import { db } from '../../../../lib/db';
 import { computeWorkerBalanceDetail, hours } from '../../../../lib/balances';
 import { randomId } from '../../../../lib/crypto';
+import { formatHours } from '../../../../lib/month-hours';
 
 export const prerender = false;
 
@@ -44,6 +45,8 @@ const detail = await computeWorkerBalanceDetail(db(), workerId, safeYear, safeMo
 if (!detail) return Astro.redirect('/admin/balances/workers');
 
 const fmt = (h: number) => `${h.toFixed(2)} h`;
+const fmtMin = (m: number) => `${Math.max(0, Math.floor(m))} min`;
+const fmtHoursPretty = (m: number) => formatHours(hours(m));
 const weekdayName = (d: number) => ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][d] ?? '';
 const kindLabel = (k: string) => (k === 'laborable' ? 'Laborable' : k === 'festivo' ? 'Festivo' : 'Fin de semana');
 ---
@@ -72,10 +75,10 @@ const kindLabel = (k: string) => (k === 'laborable' ? 'Laborable' : k === 'festi
       <div class="text-xs uppercase tracking-wider text-zinc-500">Horas planificadas</div>
       <div class="mt-1 text-xl font-bold">{fmt(hours(detail.plannedMinutes))}</div>
       <div class="mt-1 text-xs text-zinc-600">
-        Descansos: {fmt(hours(detail.breakMinutes))} · Desplazamientos: {fmt(hours(detail.travelMinutes))}
+        Descansos: {fmtMin(detail.breakMinutes)} · Desplazamientos: {fmtMin(detail.travelMinutes)}
       </div>
       <div class="mt-1 text-xs text-zinc-600">
-        Total a pagar: <span class="font-semibold text-zinc-900">{fmt(hours(detail.payableMinutes))}</span> · Promedio semanal (ISO): {fmt(detail.avgWeeklyPlannedHours)}
+        Total a pagar: <span class="font-semibold text-zinc-900">{fmtHoursPretty(detail.payableMinutes)}</span> · Promedio semanal (ISO): {fmt(detail.avgWeeklyPlannedHours)}
       </div>
     </div>
     <div class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
@@ -134,7 +137,7 @@ const kindLabel = (k: string) => (k === 'laborable' ? 'Laborable' : k === 'festi
               <td class="px-3 py-2 font-medium">{weekdayName(d.weekday0to6)} {d.ymd}</td>
               <td class="px-3 py-2">{kindLabel(d.kind)}</td>
               <td class="px-3 py-2">{fmt(hours(d.plannedMinutes))}</td>
-              <td class="px-3 py-2">{fmt(hours(d.breakMinutes))}</td>
+              <td class="px-3 py-2">{fmtMin(d.breakMinutes)}</td>
               <td class="px-3 py-2">
                 <form method="post" class="flex items-center gap-2">
                   <input type="hidden" name="_action" value="set_travel" />
@@ -150,7 +153,7 @@ const kindLabel = (k: string) => (k === 'laborable' ? 'Laborable' : k === 'festi
                   <button class="rounded-lg bg-zinc-900 px-2 py-1 text-xs font-semibold text-white">OK</button>
                 </form>
               </td>
-              <td class="px-3 py-2 font-semibold">{fmt(hours(d.payableMinutes))}</td>
+              <td class="px-3 py-2 font-semibold">{fmtHoursPretty(d.payableMinutes)}</td>
               <td class="px-3 py-2">{d.users.length === 0 ? '—' : d.users.map((u) => u.name).join(', ')}</td>
             </tr>
           ))}
