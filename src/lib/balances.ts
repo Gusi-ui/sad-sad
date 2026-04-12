@@ -414,8 +414,8 @@ export const computeWorkerBalanceDetail = async (
     const kind = classifyDay(ymd, weekday, holidayDates);
     const m = minutesByDate.get(ymd) ?? 0;
     plannedMinutes += m;
-    const hasService = m > 0;
-    const breakMinutes = hasService ? 20 : 0;
+    // Descanso: si la trabajadora hace MÁS de 6 horas de servicios en ese día, se suman 20 min.
+    const breakMinutes = m > 6 * 60 ? 20 : 0;
     const travelMinutes = Math.max(0, Number(travelByDate.get(ymd) ?? 0) || 0);
     const payableMinutes = m + breakMinutes + travelMinutes;
     breakMinutesTotal += breakMinutes;

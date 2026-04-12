@@ -22,7 +22,7 @@ Rutas:
 ### Trabajadoras
 - **Contrato semanal/mensual**: del contrato vigente ese mes (`worker_contracts`) por fechas (`start_date`, `end_date`).
 - **Planificado**: suma de duraciones de `assignments` del mes para `assigned_worker_id` con `status != 'cancelled'`.
-- **Descanso**: +20 min por cada día que tenga al menos un servicio (día con minutos > 0).
+- **Descanso**: +20 min si ese día supera **6 horas** de servicios (duración total de servicios del día > 6h).
 - **Desplazamiento**: minutos configurables por admin en `worker_day_extras.travel_minutes` (por día).
 - **Total a pagar**: `servicios + descanso + desplazamiento`.
 - **Delta mes**: `total_a_pagar - contrato_mensual` (solo si `hours_per_month` está definido en contrato).
