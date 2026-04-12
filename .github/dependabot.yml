@@ -5,4 +5,23 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
-
+    labels:
+      - "dependencies"
+    # Mantener el repo actualizado SIN romper el pipeline.
+    # @astrojs/check (v0.9.x) requiere TypeScript ^5, así que bloqueamos TS 6.x hasta que Astro lo soporte.
+    ignore:
+      - dependency-name: "typescript"
+        versions: ["6.x"]
+    groups:
+      # Agrupa actualizaciones de tooling para reducir ruido y facilitar review.
+      tooling:
+        patterns:
+          - "typescript"
+          - "wrangler"
+          - "@astrojs/*"
+          - "astro"
+          - "vite"
+      tailwind:
+        patterns:
+          - "tailwindcss"
+          - "@tailwindcss/*"

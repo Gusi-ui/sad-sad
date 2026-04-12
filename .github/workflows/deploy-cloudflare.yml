@@ -14,6 +14,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      runMigrations:
+        description: "Aplicar migraciones D1 remotas antes del deploy"
+        required: false
+        default: "false"
 
 jobs:
   deploy:
@@ -33,6 +38,14 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: D1 migrate (remote)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.runMigrations == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: d1 migrations apply DB --remote
 
       - name: Deploy
         uses: cloudflare/wrangler-action@v3
