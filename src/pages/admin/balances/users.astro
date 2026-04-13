@@ -24,7 +24,9 @@ const minutesByUser = await computeUsersForecastMinutesForMonth(
   safeMonth
 );
 
-const fmt = (h: number) => `${h.toFixed(2)} h`;
+import { formatHours } from '../../../lib/month-hours.ts';
+
+const fmt = (h: number) => formatHours(h);
 ---
 
 <AppLayout title="Balances Usuarios | Admin">
@@ -68,10 +70,10 @@ const fmt = (h: number) => `${h.toFixed(2)} h`;
           return (
             <tr class={u.active === 1 ? '' : 'opacity-60'}>
               <td class="px-4 py-3 font-medium text-zinc-900">{u.name}</td>
-              <td class="px-4 py-3">{quota === null ? '—' : `${quota} h`}</td>
+              <td class="px-4 py-3">{quota === null ? '—' : fmt(quota)}</td>
               <td class="px-4 py-3">{fmt(plannedH)}</td>
               <td class={`px-4 py-3 ${delta === null ? '' : delta > 0.01 ? 'text-rose-700' : delta < -0.01 ? 'text-emerald-700' : 'text-zinc-700'}`}>
-                {delta === null ? '—' : `${delta > 0 ? '+' : ''}${delta.toFixed(2)} h`}
+                {delta === null ? '—' : `${delta > 0 ? '+' : ''}${fmt(delta)}`}
               </td>
               <td class="px-4 py-3 text-right">
                 <a class="text-[#0284C7] hover:underline" href={`/admin/balances/users/${u.id}?year=${safeYear}&month=${safeMonth}`}>

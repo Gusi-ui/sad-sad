@@ -29,7 +29,9 @@ for (const c of contracts.results) {
 }
 
 const minutesByWorker = await computeWorkersForecastServiceMinutesForMonth(database, safeYear, safeMonth);
-const fmt = (h: number) => `${h.toFixed(2)} h`;
+import { formatHours } from '../../../lib/month-hours.ts';
+
+const fmt = (h: number) => formatHours(h);
 ---
 
 <AppLayout title="Balances Trabajadoras | Admin">
@@ -84,7 +86,7 @@ const fmt = (h: number) => `${h.toFixed(2)} h`;
               <td class="px-4 py-3">{monthH === null ? '—' : `${monthH} h`}</td>
               <td class="px-4 py-3">{fmt(plannedH)}</td>
               <td class={`px-4 py-3 ${delta === null ? '' : delta > 0.01 ? 'text-rose-700' : delta < -0.01 ? 'text-emerald-700' : 'text-zinc-700'}`}>
-                {delta === null ? '—' : `${delta > 0 ? '+' : ''}${delta.toFixed(2)} h`}
+                {delta === null ? '—' : `${delta > 0 ? '+' : ''}${fmt(delta)}`}
               </td>
               <td class="px-4 py-3 text-right">
                 <a class="text-[#0284C7] hover:underline" href={`/admin/balances/workers/${w.id}?year=${safeYear}&month=${safeMonth}`}>

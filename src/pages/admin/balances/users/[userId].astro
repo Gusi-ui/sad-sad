@@ -17,7 +17,9 @@ const safeMonth = Number.isFinite(month) && month >= 1 && month <= 12 ? month : 
 const detail = await computeUserBalanceDetail(db(), userId, safeYear, safeMonth);
 if (!detail) return Astro.redirect('/admin/balances/users');
 
-const fmt = (h: number) => `${h.toFixed(2)} h`;
+import { formatHours } from '../../../../lib/month-hours.ts';
+
+const fmt = (h: number) => formatHours(h);
 const weekdayName = (d: number) => ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][d] ?? '';
 const kindLabel = (k: string) => (k === 'laborable' ? 'Laborable' : k === 'festivo' ? 'Festivo' : 'Fin de semana');
 const sourceLabel = (s: string) => (s === 'assignments' ? 'Asignado' : s === 'templates' ? 'Plantilla' : '—');
@@ -43,16 +45,16 @@ const workerBadge = (tag: string) =>
   <div class="mt-6 grid gap-4 md:grid-cols-3">
     <div class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
       <div class="text-xs uppercase tracking-wider text-zinc-500">Cuota mensual</div>
-      <div class="mt-1 text-xl font-bold">{detail.quotaHours === null ? '—' : `${detail.quotaHours} h`}</div>
+      <div class="mt-1 text-xl font-bold">{detail.quotaHours === null ? '—' : fmt(detail.quotaHours)}</div>
     </div>
     <div class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-      <div class="text-xs uppercase tracking-wider text-zinc-500">Horas planificadas</div>
-      <div class="mt-1 text-xl font-bold">{fmt(hours(detail.plannedMinutes))}</div>
+      <div class="text-xs uppercase tracking-wider text-zinc-500">Planificado / Realizado</div>
+      <div class="mt-1 text-xl font-bold text-zinc-900">{fmt(hours(detail.plannedMinutes))}</div>
     </div>
     <div class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-      <div class="text-xs uppercase tracking-wider text-zinc-500">Delta (planificado - cuota)</div>
-      <div class={`mt-1 text-xl font-bold ${detail.deltaHours === null ? '' : detail.deltaHours > 0.01 ? 'text-rose-700' : detail.deltaHours < -0.01 ? 'text-emerald-700' : ''}`}>
-        {detail.deltaHours === null ? '—' : `${detail.deltaHours > 0 ? '+' : ''}${detail.deltaHours.toFixed(2)} h`}
+      <div class="text-xs uppercase tracking-wider text-zinc-500">Desfase</div>
+      <div class={`mt-1 text-xl font-bold ${detail.deltaHours === null ? '' : detail.deltaHours > 0.01 ? 'text-amber-700' : detail.deltaHours < -0.01 ? 'text-emerald-700' : ''}`}>
+        {detail.deltaHours === null ? '—' : `${detail.deltaHours > 0 ? '+' : ''}${fmt(detail.deltaHours)}`}
       </div>
     </div>
   </div>

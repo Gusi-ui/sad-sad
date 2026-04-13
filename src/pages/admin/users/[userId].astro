@@ -547,7 +547,7 @@ const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssign
         </div>
         <div class="rounded-xl border border-zinc-100 bg-zinc-50 p-3">
           <div class="text-xs text-zinc-500">Cuota aprobada</div>
-          <div class="text-lg font-semibold">{quota !== null && quota !== undefined ? `${quota} h` : '—'}</div>
+          <div class="text-lg font-semibold">{quota !== null && quota !== undefined ? formatHours(quota) : '—'}</div>
         </div>
       </div>
 
@@ -555,13 +555,12 @@ const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssign
         <div class="rounded-xl border-2 border-zinc-800 bg-zinc-50 p-4">
           <div class="text-sm font-semibold">Assignments del mes (oficial ayuntamiento)</div>
           <div class="mt-2 text-2xl font-semibold">{formatHours(hoursFromAssignments)}</div>
-          <div class="mt-1 text-xs text-zinc-600">({hoursFromAssignments.toFixed(2)} h decimales)</div>
           {deltaAssignments !== null ? (
             <div class={`mt-2 text-sm font-medium ${deltaAssignments > 0.02 ? 'text-amber-700' : deltaAssignments < -0.02 ? 'text-blue-700' : 'text-emerald-700'}`}>
               {deltaAssignments > 0.02
-                ? `Sobran ~${Math.abs(deltaAssignments).toFixed(2)} h respecto a la cuota`
+                ? `Sobran ~${formatHours(Math.abs(deltaAssignments))} respecto a la cuota`
                 : deltaAssignments < -0.02
-                  ? `Faltan ~${Math.abs(deltaAssignments).toFixed(2)} h respecto a la cuota`
+                  ? `Faltan ~${formatHours(Math.abs(deltaAssignments))} respecto a la cuota`
                   : 'Cuadra con la cuota (aprox.)'}
             </div>
           ) : (
@@ -571,13 +570,12 @@ const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssign
         <div class="rounded-xl border border-zinc-200 p-4">
           <div class="text-sm font-semibold">Según plantillas (planificación / agenda)</div>
           <div class="mt-2 text-2xl font-semibold">{formatHours(hoursFromTemplates)}</div>
-          <div class="mt-1 text-xs text-zinc-600">({hoursFromTemplates.toFixed(2)} h decimales)</div>
           {deltaTemplates !== null ? (
             <div class={`mt-2 text-sm font-medium ${deltaTemplates > 0.02 ? 'text-amber-700' : deltaTemplates < -0.02 ? 'text-blue-700' : 'text-emerald-700'}`}>
               {deltaTemplates > 0.02
-                ? `Sobran ~${Math.abs(deltaTemplates).toFixed(2)} h respecto a la cuota`
+                ? `Sobran ~${formatHours(Math.abs(deltaTemplates))} respecto a la cuota`
                 : deltaTemplates < -0.02
-                  ? `Faltan ~${Math.abs(deltaTemplates).toFixed(2)} h respecto a la cuota`
+                  ? `Faltan ~${formatHours(Math.abs(deltaTemplates))} respecto a la cuota`
                   : 'Cuadra con la cuota (aprox.)'}
             </div>
           ) : (
