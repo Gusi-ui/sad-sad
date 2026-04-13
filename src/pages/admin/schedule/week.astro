@@ -52,16 +52,10 @@ const autoAssignWeekRange = async (startYmd: string, endYmd: string) => {
     .all<{ id: string; name: string; worker_type: 'laborable' | 'festivo' | 'ambos' }>();
   if (workers.results.length === 0) return;
 
-  const userPrefs = await database
-    .prepare(`SELECT id, preferred_worker_id, preferred_weekend_worker_id FROM service_users`)
-    .all<{ id: string; preferred_worker_id: string | null; preferred_weekend_worker_id: string | null }>();
-  const prefsMap = new Map<string, { preferred_worker_id: string | null; preferred_weekend_worker_id: string | null }>();
-  for (const p of userPrefs.results) prefsMap.set(p.id, p);
-
   const weekAssignments = await database
     .prepare(
       `SELECT a.id, a.date, a.kind, a.planned_start, a.planned_end, a.service_user_id, a.assigned_worker_id,
-              t.required_worker_type
+              t.required_worker_type, t.preferred_worker_id
        FROM assignments a
        LEFT JOIN service_templates t ON t.id = a.template_id
        WHERE a.date >= ? AND a.date <= ? AND a.status != 'cancelled'
@@ -77,6 +71,7 @@ const autoAssignWeekRange = async (startYmd: string, endYmd: string) => {
       service_user_id: string;
       assigned_worker_id: string | null;
       required_worker_type: string | null;
+      preferred_worker_id: string | null;
     }>();
 
   const workerIntervalsByDate = new Map<string, { start: number; end: number }[]>();
@@ -98,10 +93,7 @@ const autoAssignWeekRange = async (startYmd: string, endYmd: string) => {
     const end = timeToMinutes(a.planned_end);
     if (start === null || end === null) continue;
 
-    const pref = prefsMap.get(a.service_user_id);
-    const habitualWorkerId = a.kind === 'laborable'
-      ? pref?.preferred_worker_id ?? null
-      : pref?.preferred_weekend_worker_id ?? pref?.preferred_worker_id ?? null;
+    const habitualWorkerId = a.preferred_worker_id ?? null;
 
     const candidates = workers.results
       .map((w) => {
@@ -279,7 +271,8 @@ const assignments = await database
             a.service_user_id,
             su.name as user_name,
             w.name as worker_name,
-            t.required_worker_type as required_worker_type
+            t.required_worker_type as required_worker_type,
+            t.preferred_worker_id as preferred_worker_id
      FROM assignments a
      JOIN service_users su ON su.id = a.service_user_id
      LEFT JOIN workers w ON w.id = a.assigned_worker_id
@@ -301,6 +294,7 @@ const assignments = await database
     user_name: string;
     worker_name: string | null;
     required_worker_type: string | null;
+    preferred_worker_id: string | null;
   }>();
 
 type AssignmentRow = (typeof assignments.results)[number];
@@ -374,22 +368,8 @@ const getWorkerAvailability = (workerId: string, date: string, start: number, en
   return { available: true as const };
 };
 
-const habitualRows = await database
-  .prepare(
-    `SELECT id, preferred_worker_id, preferred_weekend_worker_id FROM service_users WHERE preferred_worker_id IS NOT NULL OR preferred_weekend_worker_id IS NOT NULL`
-  )
-  .all<{ id: string; preferred_worker_id: string | null; preferred_weekend_worker_id: string | null }>();
-
 const usersCountRow = await database.prepare(`SELECT count(id) as count FROM service_users`).first<{ count: number }>();
 const usersCount = usersCountRow?.count ?? 0;
-
-const habitualByUser = new Map<string, { weekdayWorkerId: string | null, weekendWorkerId: string | null }>();
-for (const row of habitualRows.results) {
-  habitualByUser.set(row.id, { 
-    weekdayWorkerId: row.preferred_worker_id,
-    weekendWorkerId: row.preferred_weekend_worker_id
-  });
-}
 
 type Candidate = { w: WorkerRow; available: boolean; loadMinutes: number; habitual: boolean; compatible: boolean };
 
@@ -547,17 +527,8 @@ const formatMinutes = (minutes: number) => {
                       const availability = getWorkerAvailability(w.id, a.date, start, end);
                       const loadMinutes = workerLoadMinutes.get(w.id) ?? 0;
                       
-                      const userPrefs = habitualByUser.get(a.service_user_id);
-                      let habitualWorkerId = null;
-                      if (userPrefs) {
-                        if (a.kind === 'laborable') {
-                          habitualWorkerId = userPrefs.weekdayWorkerId;
-                        } else {
-                          // festivo o fin_semana
-                          habitualWorkerId = userPrefs.weekendWorkerId || userPrefs.weekdayWorkerId; // fallback to weekday if no weekend specific
-                        }
-                      }
-                      
+                      let habitualWorkerId = a.preferred_worker_id ?? null;
+
                       const habitual = habitualWorkerId === w.id;
                       const compatible = matchesWorkerType(a.required_worker_type, w.worker_type);
                       const candidate: Candidate = { w, available: availability.available, loadMinutes, habitual, compatible };

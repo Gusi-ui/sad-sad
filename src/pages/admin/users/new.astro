@@ -12,17 +12,14 @@ if (Astro.request.method === 'POST') {
     const address = String(formData.get('address') ?? '').trim();
     const phone = String(formData.get('phone') ?? '').trim();
     const notes = String(formData.get('notes') ?? '').trim();
-    const preferredWorkerRaw = String(formData.get('preferredWorker') ?? '').trim();
-    const preferredWorkerId = preferredWorkerRaw === '' ? null : preferredWorkerRaw;
-    const preferredWeekendWorkerRaw = String(formData.get('preferredWeekendWorker') ?? '').trim();
-    const preferredWeekendWorkerId = preferredWeekendWorkerRaw === '' ? null : preferredWeekendWorkerRaw;
 
     if (name) {
+      const id = randomId();
       await db()
-        .prepare(`INSERT INTO service_users (id, name, address, phone, notes, preferred_worker_id, preferred_weekend_worker_id) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-        .bind(randomId(), name, address || null, phone || null, notes || null, preferredWorkerId, preferredWeekendWorkerId)
+        .prepare(`INSERT INTO service_users (id, name, address, phone, notes) VALUES (?, ?, ?, ?, ?)`)
+        .bind(id, name, address || null, phone || null, notes || null)
         .run();
-      return Astro.redirect('/admin/users');
+      return Astro.redirect(`/admin/users/${id}`);
     }
   }
 }
@@ -73,26 +70,6 @@ const workers = await db()
         <label class="block">
           <span class="text-sm font-semibold text-zinc-700">Notas / Observaciones (opcional)</span>
           <textarea class="mt-1.5 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" name="notes" rows="3" placeholder="Información relevante sobre el usuario..."></textarea>
-        </label>
-
-        <label class="block">
-          <span class="text-sm font-semibold text-zinc-700">Trabajadora Habitual (L-V)</span>
-          <select class="mt-1.5 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" name="preferredWorker">
-            <option value="">— Ninguna en específico —</option>
-            {workers.results.map((w) => (
-              <option value={w.id}>{w.name}</option>
-            ))}
-          </select>
-        </label>
-        
-        <label class="block">
-          <span class="text-sm font-semibold text-zinc-700">Trabajadora Habitual (Finde/Festivo)</span>
-          <select class="mt-1.5 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" name="preferredWeekendWorker">
-            <option value="">— Ninguna en específico —</option>
-            {workers.results.map((w) => (
-              <option value={w.id}>{w.name}</option>
-            ))}
-          </select>
         </label>
 
         <div class="pt-2">

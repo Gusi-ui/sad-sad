@@ -13,6 +13,7 @@ export type ServiceTemplateRow = {
   weekday: number | null;
   start_time: string;
   end_time: string;
+  preferred_worker_id?: string | null;
 };
 
 export const timeToMinutes = (hhmm: string) => {

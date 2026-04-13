@@ -35,17 +35,13 @@ if (Astro.request.method === 'POST') {
     const quotaRaw = String(formData.get('monthlyHoursQuota') ?? '').trim();
     const quotaParsed = quotaRaw === '' ? null : Number(quotaRaw);
     const quotaDb = quotaParsed === null || !Number.isFinite(quotaParsed) ? null : quotaParsed;
-    const preferredWorkerRaw = String(formData.get('preferredWorker') ?? '').trim();
-    const preferredWorkerId = preferredWorkerRaw === '' ? null : preferredWorkerRaw;
-    const preferredWeekendWorkerRaw = String(formData.get('preferredWeekendWorker') ?? '').trim();
-    const preferredWeekendWorkerId = preferredWeekendWorkerRaw === '' ? null : preferredWeekendWorkerRaw;
 
     if (name) {
       await database
         .prepare(
-          `UPDATE service_users SET name = ?, address = ?, notes = ?, active = ?, monthly_hours_quota = ?, preferred_worker_id = ?, preferred_weekend_worker_id = ? WHERE id = ?`
+          `UPDATE service_users SET name = ?, address = ?, notes = ?, active = ?, monthly_hours_quota = ? WHERE id = ?`
         )
-        .bind(name, address || null, notes || null, active, quotaDb, preferredWorkerId, preferredWeekendWorkerId, userId)
+        .bind(name, address || null, notes || null, active, quotaDb, userId)
         .run();
     }
     return Astro.redirect(`/admin/users/${userId}`);
@@ -56,6 +52,8 @@ if (Astro.request.method === 'POST') {
     const startTime = String(formData.get('startTime') ?? '').trim();
     const endTime = String(formData.get('endTime') ?? '').trim();
     const requiredWorkerType = String(formData.get('requiredWorkerType') ?? 'laborable');
+    const preferredWorkerRaw = String(formData.get('preferredWorker') ?? '').trim();
+    const preferredWorkerId = preferredWorkerRaw === '' ? null : preferredWorkerRaw;
 
     // Manejar múltiples días seleccionados
     const selectedDays = formData.getAll('weekdays').map(d => Number(d));
@@ -67,10 +65,10 @@ if (Astro.request.method === 'POST') {
           if (Number.isFinite(weekday) && weekday >= 0 && weekday <= 6) {
             await database
               .prepare(
-                `INSERT INTO service_templates (id, service_user_id, kind, weekday, start_time, end_time, required_worker_type)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`
+                `INSERT INTO service_templates (id, service_user_id, kind, weekday, start_time, end_time, required_worker_type, preferred_worker_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
               )
-              .bind(randomId(), userId, kind, weekday, startTime, endTime, requiredWorkerType)
+              .bind(randomId(), userId, kind, weekday, startTime, endTime, requiredWorkerType, preferredWorkerId)
               .run();
           }
         }
@@ -78,10 +76,10 @@ if (Astro.request.method === 'POST') {
         // Si no se selecciona ningún día, se asume "Todos los días de ese tipo" (weekday = null)
         await database
           .prepare(
-            `INSERT INTO service_templates (id, service_user_id, kind, weekday, start_time, end_time, required_worker_type)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`
+            `INSERT INTO service_templates (id, service_user_id, kind, weekday, start_time, end_time, required_worker_type, preferred_worker_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
           )
-          .bind(randomId(), userId, kind, null, startTime, endTime, requiredWorkerType)
+          .bind(randomId(), userId, kind, null, startTime, endTime, requiredWorkerType, preferredWorkerId)
           .run();
       }
     }
@@ -241,7 +239,7 @@ if (Astro.request.method === 'POST') {
 }
 
 const user = await db()
-  .prepare(`SELECT id, name, address, phone, notes, active, monthly_hours_quota, preferred_worker_id, preferred_weekend_worker_id FROM service_users WHERE id = ? LIMIT 1`)
+  .prepare(`SELECT id, name, address, phone, notes, active, monthly_hours_quota FROM service_users WHERE id = ? LIMIT 1`)
   .bind(userId)
   .first<{
     id: string;
@@ -251,8 +249,6 @@ const user = await db()
     notes: string | null;
     active: number;
     monthly_hours_quota: number | null;
-    preferred_worker_id: string | null;
-    preferred_weekend_worker_id: string | null;
   }>();
 
 if (!user) return Astro.redirect('/admin/users');
@@ -260,16 +256,17 @@ if (!user) return Astro.redirect('/admin/users');
 const workers = await db()
   .prepare(`SELECT id, name FROM workers WHERE active = 1 ORDER BY name ASC`)
   .all<{ id: string; name: string }>();
+const workerNameMap = new Map(workers.results.map((w) => [w.id, w.name]));
 
 const templates = await db()
   .prepare(
-    `SELECT id, kind, weekday, start_time, end_time, required_worker_type
+    `SELECT id, kind, weekday, start_time, end_time, required_worker_type, preferred_worker_id
      FROM service_templates
      WHERE service_user_id = ?
      ORDER BY kind ASC, weekday ASC, start_time ASC`
   )
   .bind(userId)
-  .all<{ id: string; kind: string; weekday: number | null; start_time: string; end_time: string; required_worker_type: string }>();
+  .all<{ id: string; kind: string; weekday: number | null; start_time: string; end_time: string; required_worker_type: string; preferred_worker_id: string | null }>();
 
 const orphanAssignments = await db()
   .prepare(`SELECT COUNT(*) AS c FROM assignments WHERE service_user_id = ? AND template_id IS NULL AND source = 'manual' AND status != 'done'`)
@@ -342,26 +339,6 @@ const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssign
         <label class="block sm:col-span-2">
           <span class="text-sm font-medium text-zinc-700">Notas</span>
           <textarea class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="notes" rows="2">{user.notes ?? ''}</textarea>
-        </label>
-        
-        <label class="block">
-          <span class="text-sm font-medium text-zinc-700">Trabajadora Habitual (L-V)</span>
-          <select class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" name="preferredWorker">
-            <option value="">— Ninguna en específico —</option>
-            {workers.results.map((w) => (
-              <option value={w.id} selected={user.preferred_worker_id === w.id}>{w.name}</option>
-            ))}
-          </select>
-        </label>
-        
-        <label class="block">
-          <span class="text-sm font-medium text-zinc-700">Trabajadora Habitual (Finde/Festivo)</span>
-          <select class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" name="preferredWeekendWorker">
-            <option value="">— Ninguna en específico —</option>
-            {workers.results.map((w) => (
-              <option value={w.id} selected={user.preferred_weekend_worker_id === w.id}>{w.name}</option>
-            ))}
-          </select>
         </label>
 
         <div class="sm:col-span-2 flex items-center justify-between mt-2 border-t border-zinc-100 pt-4">
@@ -456,12 +433,22 @@ const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssign
           <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="endTime" placeholder="09:30" required />
         </label>
 
-        <label class="block sm:col-span-2">
+        <label class="block">
           <span class="text-sm font-medium text-zinc-700">Requiere trabajadora</span>
           <select class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="requiredWorkerType">
             <option value="laborable">Laborable</option>
             <option value="festivo">Festivo/Finde</option>
             <option value="ambos">Ambos</option>
+          </select>
+        </label>
+
+        <label class="block">
+          <span class="text-sm font-medium text-zinc-700">Trabajadora preferida (opcional)</span>
+          <select class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="preferredWorker">
+            <option value="">— Ninguna en específico —</option>
+            {workers.results.map((w) => (
+              <option value={w.id}>{w.name}</option>
+            ))}
           </select>
         </label>
 
@@ -477,6 +464,7 @@ const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssign
               <th class="px-3 py-2">Inicio</th>
               <th class="px-3 py-2">Fin</th>
               <th class="px-3 py-2">Requiere</th>
+              <th class="px-3 py-2">Trabajadora Preferida</th>
               <th class="px-3 py-2 w-10"></th>
             </tr>
           </thead>
@@ -494,6 +482,9 @@ const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssign
                 <td class={`px-3 py-3 capitalize text-xs ${t.kind === 'festivo' && t.required_worker_type === 'laborable' ? 'text-amber-700 font-semibold' : 'text-zinc-600'}`}>
                   {t.required_worker_type}
                   {t.kind === 'festivo' && t.required_worker_type === 'laborable' ? ' (revisar)' : ''}
+                </td>
+                <td class="px-3 py-3 text-zinc-600 text-xs">
+                  {t.preferred_worker_id ? workerNameMap.get(t.preferred_worker_id) ?? '—' : '—'}
                 </td>
                 <td class="px-3 py-3 text-right">
                   <form method="post" class="inline">

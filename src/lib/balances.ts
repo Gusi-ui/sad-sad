@@ -106,16 +106,12 @@ export type ServiceUserPrefRow = {
   id: string;
   name: string;
   active: number;
-  preferred_worker_id: string | null;
-  preferred_weekend_worker_id: string | null;
 };
 
-const preferredWorkerForDay = (
-  u: Pick<ServiceUserPrefRow, 'preferred_worker_id' | 'preferred_weekend_worker_id'>,
-  kind: DayKind
+const preferredWorkerForTemplate = (
+  t: ServiceTemplateRow
 ) => {
-  if (kind === 'laborable') return u.preferred_worker_id;
-  return u.preferred_weekend_worker_id ?? u.preferred_worker_id;
+  return t.preferred_worker_id;
 };
 
 export const computeUsersMinutesForMonth = async (db: D1DatabaseLike, year: number, month: number) => {
@@ -158,7 +154,7 @@ export const computeUsersForecastMinutesForMonth = async (
 
   const tplRows = await db
     .prepare(
-      `SELECT service_user_id, kind, weekday, start_time, end_time
+      `SELECT service_user_id, kind, weekday, start_time, end_time, preferred_worker_id
        FROM service_templates
        WHERE service_user_id IN (${placeholders})
        ORDER BY service_user_id, kind, weekday, start_time`
@@ -169,7 +165,7 @@ export const computeUsersForecastMinutesForMonth = async (
   const templatesByUser = new Map<string, ServiceTemplateRow[]>();
   for (const r of tplRows.results) {
     const arr = templatesByUser.get(r.service_user_id) ?? [];
-    arr.push({ kind: r.kind, weekday: r.weekday, start_time: r.start_time, end_time: r.end_time });
+    arr.push({ kind: r.kind, weekday: r.weekday, start_time: r.start_time, end_time: r.end_time, preferred_worker_id: r.preferred_worker_id });
     templatesByUser.set(r.service_user_id, arr);
   }
 
@@ -240,7 +236,7 @@ export const computeWorkersMinutesForMonth = async (db: D1DatabaseLike, year: nu
  * Minutos mensuales previstos por trabajadora (servicios), usando:
  * - Assignments si existen para un usuario+día (mandan siempre; soporta sustituciones).
  * - Si NO existen assignments para ese usuario+día, se usa su plantilla y se asigna a la trabajadora preferida
- *   (laborables: preferred_worker_id; festivo/finde: preferred_weekend_worker_id si existe, si no preferred_worker_id).
+ *   de la plantilla horaria correspondiente.
  */
 export const computeWorkersForecastServiceMinutesForMonth = async (db: D1DatabaseLike, year: number, month: number) => {
   const { startYmd, endYmd, daysInMonth } = monthRangeUtc(year, month);
@@ -248,7 +244,7 @@ export const computeWorkersForecastServiceMinutesForMonth = async (db: D1Databas
 
   const users = await db
     .prepare(
-      `SELECT id, name, active, preferred_worker_id, preferred_weekend_worker_id
+      `SELECT id, name, active
        FROM service_users
        WHERE active = 1
        ORDER BY name ASC`
@@ -261,7 +257,7 @@ export const computeWorkersForecastServiceMinutesForMonth = async (db: D1Databas
 
   const tplRows = await db
     .prepare(
-      `SELECT service_user_id, kind, weekday, start_time, end_time
+      `SELECT service_user_id, kind, weekday, start_time, end_time, preferred_worker_id
        FROM service_templates
        WHERE service_user_id IN (${placeholders})
        ORDER BY service_user_id, kind, weekday, start_time`
@@ -272,7 +268,7 @@ export const computeWorkersForecastServiceMinutesForMonth = async (db: D1Databas
   const templatesByUser = new Map<string, ServiceTemplateRow[]>();
   for (const r of tplRows.results) {
     const arr = templatesByUser.get(r.service_user_id) ?? [];
-    arr.push({ kind: r.kind, weekday: r.weekday, start_time: r.start_time, end_time: r.end_time });
+    arr.push({ kind: r.kind, weekday: r.weekday, start_time: r.start_time, end_time: r.end_time, preferred_worker_id: r.preferred_worker_id });
     templatesByUser.set(r.service_user_id, arr);
   }
 
@@ -316,15 +312,17 @@ export const computeWorkersForecastServiceMinutesForMonth = async (db: D1Databas
           totals.set(a.assigned_worker_id, (totals.get(a.assigned_worker_id) ?? 0) + m);
         }
       } else {
-        // Forecast por plantilla -> trabajadora preferida
-        const pref = preferredWorkerForDay(u, kind);
-        if (!pref) continue;
+        // Forecast por plantilla -> trabajadora preferida de cada plantilla
         const tpls = templatesByUser.get(uid) ?? [];
         const applicable = templatesApplicableForDay(tpls, kind, weekday);
-        let tplMinutes = 0;
-        for (const t of applicable) tplMinutes += slotDurationMinutes(t.start_time, t.end_time);
-        if (tplMinutes <= 0) continue;
-        totals.set(pref, (totals.get(pref) ?? 0) + tplMinutes);
+        for (const t of applicable) {
+          const pref = preferredWorkerForTemplate(t);
+          if (!pref) continue;
+          const tplMinutes = slotDurationMinutes(t.start_time, t.end_time);
+          if (tplMinutes > 0) {
+            totals.set(pref, (totals.get(pref) ?? 0) + tplMinutes);
+          }
+        }
       }
     }
   }
@@ -342,17 +340,28 @@ export const computeUserBalanceDetail = async (
 
   const user = await db
     .prepare(
-      `SELECT id, name, monthly_hours_quota, preferred_worker_id, preferred_weekend_worker_id
+      `SELECT id, name, monthly_hours_quota
        FROM service_users
        WHERE id = ? LIMIT 1`
     )
     .bind(userId)
-    .first<{ id: string; name: string; monthly_hours_quota: number | null; preferred_worker_id: string | null; preferred_weekend_worker_id: string | null }>();
+    .first<{ id: string; name: string; monthly_hours_quota: number | null }>();
   if (!user) return null;
 
   const holidayDates = await loadHolidayDatesInRange(db as any, startYmd, endYmd);
 
-  const prefIds = Array.from(new Set([user.preferred_worker_id, user.preferred_weekend_worker_id].filter(Boolean))) as string[];
+  const tplRows = await db
+    .prepare(
+      `SELECT kind, weekday, start_time, end_time, preferred_worker_id
+       FROM service_templates
+       WHERE service_user_id = ?
+       ORDER BY kind, weekday, start_time`
+    )
+    .bind(userId)
+    .all<ServiceTemplateRow>();
+  const templates = tplRows.results;
+
+  const prefIds = Array.from(new Set(templates.map(t => t.preferred_worker_id).filter(Boolean))) as string[];
   const prefWorkers =
     prefIds.length === 0
       ? []
@@ -363,17 +372,6 @@ export const computeUserBalanceDetail = async (
             .all<{ id: string; name: string }>()
         ).results;
   const prefById = new Map(prefWorkers.map((w) => [w.id, w.name]));
-
-  const tplRows = await db
-    .prepare(
-      `SELECT kind, weekday, start_time, end_time
-       FROM service_templates
-       WHERE service_user_id = ?
-       ORDER BY kind, weekday, start_time`
-    )
-    .bind(userId)
-    .all<ServiceTemplateRow>();
-  const templates = tplRows.results;
 
   const rows = await db
     .prepare(
@@ -405,29 +403,30 @@ export const computeUserBalanceDetail = async (
     const ymd = `${year}-${pad2(month)}-${pad2(day)}`;
     const weekday = d.getUTCDay();
     const kind = classifyDay(ymd, weekday, holidayDates);
-    const prefId = preferredWorkerForDay(user, kind);
+    const applicable = templatesApplicableForDay(templates, kind, weekday);
+    const prefIdsForDay = new Set(applicable.map(t => t.preferred_worker_id).filter(Boolean) as string[]);
     const assignMins = minutesByDate.get(ymd);
     let m = 0;
     let source: UserBalanceDay['source'] = 'none';
     if (assignMins !== undefined) {
       m = assignMins;
       source = 'assignments';
-      // Etiquetar habitual/sustitución comparando con preferida
+      // Etiquetar habitual/sustitución comparando con las preferidas de las plantillas del día
       const list = workersByDate.get(ymd) ?? [];
       for (const w of list) {
-        if (prefId && w.id !== prefId) w.tag = 'Sustitución';
-        else if (prefId && w.id === prefId) w.tag = 'Habitual';
+        if (prefIdsForDay.size > 0 && !prefIdsForDay.has(w.id)) w.tag = 'Sustitución';
+        else if (prefIdsForDay.has(w.id)) w.tag = 'Habitual';
         else w.tag = 'Asignado';
       }
       workersByDate.set(ymd, list);
     } else {
       // Forecast: si todavía no se han materializado assignments, usamos plantillas.
-      const applicable = templatesApplicableForDay(templates, kind, weekday);
       for (const t of applicable) m += slotDurationMinutes(t.start_time, t.end_time);
       source = m > 0 ? 'templates' : 'none';
-      // En modo plantilla, mostramos la trabajadora habitual si existe
-      if (prefId && m > 0) {
-        workersByDate.set(ymd, [{ id: prefId, name: prefById.get(prefId) ?? '—', tag: 'Habitual' }]);
+      // En modo plantilla, mostramos las trabajadoras habituales si existen
+      if (m > 0 && prefIdsForDay.size > 0) {
+        const workers = Array.from(prefIdsForDay).map(id => ({ id, name: prefById.get(id) ?? '—', tag: 'Habitual' as const }));
+        workersByDate.set(ymd, workers);
       }
     }
     plannedMinutes += m;
@@ -515,11 +514,12 @@ export const computeWorkerBalanceDetail = async (
   // Usuarios potenciales a los que esta trabajadora atiende habitualmente (para forecast por plantillas)
   const users = await db
     .prepare(
-      `SELECT id, name, active, preferred_worker_id, preferred_weekend_worker_id
-       FROM service_users
-       WHERE active = 1 AND (preferred_worker_id = ? OR preferred_weekend_worker_id = ?)`
+      `SELECT DISTINCT u.id, u.name, u.active
+       FROM service_users u
+       JOIN service_templates t ON t.service_user_id = u.id
+       WHERE u.active = 1 AND t.preferred_worker_id = ?`
     )
-    .bind(workerId, workerId)
+    .bind(workerId)
     .all<ServiceUserPrefRow>();
   const userIds = users.results.map((u) => u.id);
 
@@ -528,7 +528,7 @@ export const computeWorkerBalanceDetail = async (
     const placeholders = userIds.map(() => '?').join(',');
     const tplRows = await db
       .prepare(
-        `SELECT service_user_id, kind, weekday, start_time, end_time
+        `SELECT service_user_id, kind, weekday, start_time, end_time, preferred_worker_id
          FROM service_templates
          WHERE service_user_id IN (${placeholders})
          ORDER BY service_user_id, kind, weekday, start_time`
@@ -537,7 +537,7 @@ export const computeWorkerBalanceDetail = async (
       .all<{ service_user_id: string } & ServiceTemplateRow>();
     for (const r of tplRows.results) {
       const arr = tplByUser.get(r.service_user_id) ?? [];
-      arr.push({ kind: r.kind, weekday: r.weekday, start_time: r.start_time, end_time: r.end_time });
+      arr.push({ kind: r.kind, weekday: r.weekday, start_time: r.start_time, end_time: r.end_time, preferred_worker_id: r.preferred_worker_id });
       tplByUser.set(r.service_user_id, arr);
     }
   }
@@ -596,7 +596,9 @@ export const computeWorkerBalanceDetail = async (
     // Para cada usuario habitual, o usamos assignments (si existen) o plantilla (si no existen).
     for (const uid of userIds) {
       const u = usersById.get(uid)!;
-      const pref = preferredWorkerForDay(u, kind);
+      const tpls = tplByUser.get(uid) ?? [];
+      const applicable = templatesApplicableForDay(tpls, kind, weekday);
+      const prefIdsForDay = new Set(applicable.map(t => t.preferred_worker_id).filter(Boolean) as string[]);
       const dayAssignments = assignmentsByUserDate.get(udk(uid, ymd));
 
       if (dayAssignments && dayAssignments.length > 0) {
@@ -604,15 +606,16 @@ export const computeWorkerBalanceDetail = async (
         for (const a of dayAssignments) {
           if (a.assigned_worker_id !== workerId) continue;
           m += slotDurationMinutes(a.planned_start, a.planned_end);
-          dayUsers.push({ id: u.id, name: u.name, tag: pref && pref !== workerId ? 'Sustitución' : 'Habitual' });
+          dayUsers.push({ id: u.id, name: u.name, tag: prefIdsForDay.has(workerId) ? 'Habitual' : 'Sustitución' });
         }
       } else {
-        // Forecast por plantilla: solo si la preferida de ese día es esta trabajadora
-        if (pref !== workerId) continue;
-        const tpls = tplByUser.get(uid) ?? [];
-        const applicable = templatesApplicableForDay(tpls, kind, weekday);
+        // Forecast por plantilla: solo sumamos los tramos donde esta trabajadora es la preferida
         let tplMinutes = 0;
-        for (const t of applicable) tplMinutes += slotDurationMinutes(t.start_time, t.end_time);
+        for (const t of applicable) {
+          if (t.preferred_worker_id === workerId) {
+            tplMinutes += slotDurationMinutes(t.start_time, t.end_time);
+          }
+        }
         if (tplMinutes <= 0) continue;
         m += tplMinutes;
         dayUsers.push({ id: u.id, name: u.name, tag: 'Habitual' });

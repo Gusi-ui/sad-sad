@@ -177,8 +177,8 @@ const holidaySet = new Set(holidayRows.results.map((r) => r.date));
 
 const templates = await database
   .prepare(
-    `SELECT t.id, t.service_user_id, t.kind, t.weekday, t.start_time, t.end_time,
-            su.name as user_name, su.preferred_worker_id, su.preferred_weekend_worker_id
+    `SELECT t.id, t.service_user_id, t.kind, t.weekday, t.start_time, t.end_time, t.preferred_worker_id,
+            su.name as user_name
      FROM service_templates t
      JOIN service_users su ON su.id = t.service_user_id
      WHERE (? IS NULL OR su.id = ?)
@@ -192,9 +192,8 @@ const templates = await database
     weekday: number | null;
     start_time: string;
     end_time: string;
-    user_name: string;
     preferred_worker_id: string | null;
-    preferred_weekend_worker_id: string | null;
+    user_name: string;
   }>();
 
 const workersById = new Map(workers.results.map((w) => [w.id, w.name]));
@@ -313,9 +312,7 @@ for (let day = 1; day <= monthEnd.getUTCDate(); day += 1) {
     if (!templateApplies(t, ymd)) continue;
     if (existingTemplateIds.has(t.id)) continue;
     const voted = templateWorkerMap.get(t.id)?.workerId ?? null;
-    const fallbackPref = t.kind === 'laborable'
-      ? t.preferred_worker_id
-      : t.preferred_weekend_worker_id ?? t.preferred_worker_id;
+    const fallbackPref = t.preferred_worker_id;
     const workerId = voted ?? fallbackPref ?? null;
     if (selectedWorkerId && workerId !== selectedWorkerId) continue;
     projections.push({

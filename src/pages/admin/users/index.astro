@@ -4,23 +4,17 @@ import { db } from '../../../lib/db';
 
 const users = await db()
   .prepare(
-    `SELECT u.id, u.name, u.address, u.phone, u.active, u.created_at, 
-            w.name as preferred_worker_name,
-            w2.name as preferred_weekend_worker_name
+    `SELECT u.id, u.name, u.active, u.address, u.phone, u.created_at
      FROM service_users u
-     LEFT JOIN workers w ON w.id = u.preferred_worker_id
-     LEFT JOIN workers w2 ON w2.id = u.preferred_weekend_worker_id
      ORDER BY u.name ASC`
   )
-  .all<{ 
-    id: string; 
-    name: string; 
-    address: string | null; 
+  .all<{
+    id: string;
+    name: string;
+    active: number;
+    address: string | null;
     phone: string | null;
-    active: number; 
-    created_at: string; 
-    preferred_worker_name: string | null;
-    preferred_weekend_worker_name: string | null;
+    created_at: string;
   }>();
 ---
 
@@ -142,7 +136,7 @@ const users = await db()
       
       input.addEventListener('focus', (e) => {
         if (!e.target.value && usersData.length > 0) {
-          // renderResults(' ');
+          // renderResults('');
         }
       });
     });
