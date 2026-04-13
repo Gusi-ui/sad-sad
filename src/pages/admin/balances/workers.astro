@@ -1,7 +1,7 @@
 ---
 import AppLayout from '../../../layouts/AppLayout.astro';
 import { db } from '../../../lib/db';
-import { computeWorkersMinutesForMonth, hours } from '../../../lib/balances';
+import { computeWorkersForecastServiceMinutesForMonth, hours } from '../../../lib/balances';
 import { pickContractForMonth } from '../../../lib/month-hours';
 
 export const prerender = false;
@@ -28,7 +28,7 @@ for (const c of contracts.results) {
   contractsByWorker.set(c.worker_id, arr);
 }
 
-const minutesByWorker = await computeWorkersMinutesForMonth(database, safeYear, safeMonth);
+const minutesByWorker = await computeWorkersForecastServiceMinutesForMonth(database, safeYear, safeMonth);
 const fmt = (h: number) => `${h.toFixed(2)} h`;
 ---
 
@@ -55,8 +55,8 @@ const fmt = (h: number) => `${h.toFixed(2)} h`;
 
   <div class="mt-6 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
     <div class="border-b border-zinc-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-      Nota: el cómputo de trabajadoras se basa en <strong>assignments existentes</strong>. Si aún no has generado la agenda del mes, faltarán horas.
-      En el detalle puedes añadir minutos de desplazamiento por día, y se suma automáticamente 20 min de descanso por día con servicio.
+      Nota: el cómputo incluye <strong>previsión por plantillas</strong> (trabajadora preferida) si aún no existen assignments en ese día.
+      Si existe un assignment (p. ej. sustitución), ese assignment prevalece.
     </div>
     <table class="w-full text-sm">
       <thead class="bg-zinc-50 text-left text-xs uppercase tracking-wider text-zinc-600">

@@ -21,6 +21,12 @@ const fmt = (h: number) => `${h.toFixed(2)} h`;
 const weekdayName = (d: number) => ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][d] ?? '';
 const kindLabel = (k: string) => (k === 'laborable' ? 'Laborable' : k === 'festivo' ? 'Festivo' : 'Fin de semana');
 const sourceLabel = (s: string) => (s === 'assignments' ? 'Asignado' : s === 'templates' ? 'Plantilla' : '—');
+const workerBadge = (tag: string) =>
+  tag === 'Sustitución'
+    ? 'bg-amber-100 text-amber-900'
+    : tag === 'Habitual'
+      ? 'bg-emerald-100 text-emerald-900'
+      : 'bg-zinc-100 text-zinc-700';
 ---
 
 <AppLayout title={`Balance ${detail.user.name} | Admin`}>
@@ -97,7 +103,18 @@ const sourceLabel = (s: string) => (s === 'assignments' ? 'Asignado' : s === 'te
               <td class="px-3 py-2">{sourceLabel(d.source)}</td>
               <td class="px-3 py-2">{fmt(hours(d.plannedMinutes))}</td>
               <td class="px-3 py-2">
-                {d.workers.length === 0 ? '—' : d.workers.map((w) => w.name).join(', ')}
+                {d.workers.length === 0 ? (
+                  '—'
+                ) : (
+                  <div class="flex flex-wrap gap-2">
+                    {d.workers.map((w) => (
+                      <span class={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${workerBadge(w.tag)}`}>
+                        {w.name}
+                        {w.tag !== 'Asignado' ? <span class="opacity-70">({w.tag})</span> : null}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </td>
             </tr>
           ))}

@@ -49,6 +49,7 @@ const fmtMin = (m: number) => `${Math.max(0, Math.floor(m))} min`;
 const fmtHoursPretty = (m: number) => formatHours(hours(m));
 const weekdayName = (d: number) => ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][d] ?? '';
 const kindLabel = (k: string) => (k === 'laborable' ? 'Laborable' : k === 'festivo' ? 'Festivo' : 'Fin de semana');
+const userBadge = (tag: string) => (tag === 'Sustitución' ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900');
 ---
 
 <AppLayout title={`Balance ${detail.worker.name} | Admin`}>
@@ -154,7 +155,20 @@ const kindLabel = (k: string) => (k === 'laborable' ? 'Laborable' : k === 'festi
                 </form>
               </td>
               <td class="px-3 py-2 font-semibold">{fmtHoursPretty(d.payableMinutes)}</td>
-              <td class="px-3 py-2">{d.users.length === 0 ? '—' : d.users.map((u) => u.name).join(', ')}</td>
+              <td class="px-3 py-2">
+                {d.users.length === 0 ? (
+                  '—'
+                ) : (
+                  <div class="flex flex-wrap gap-2">
+                    {d.users.map((u) => (
+                      <span class={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${userBadge(u.tag)}`}>
+                        {u.name}
+                        <span class="opacity-70">({u.tag})</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>
