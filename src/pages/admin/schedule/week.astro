@@ -2,9 +2,9 @@
 import AppLayout from '../../../layouts/AppLayout.astro';
 import { db } from '../../../lib/db';
 import { datesOfIsoWeek, getIsoWeekKey, toYmd } from '../../../lib/dates';
-import { randomId } from '../../../lib/crypto';
 import { bumpManyWorkerAssignmentsVersions, bumpWorkerAssignmentsVersion } from '../../../lib/realtime';
 import { sendPushToWorkerIds } from '../../../lib/push';
+import { timeToMinutes, autoAssignWeekRange, generateWeek } from '../../../lib/schedule-generator';
 
 export const prerender = false;
 
@@ -15,127 +15,13 @@ if (!weekDates) return Astro.redirect(`/admin/schedule/week?week=${currentWeek}`
 
 const database = db();
 
-const holidayScopes = ['national', 'catalonia', 'barcelona', 'mataro'] as const;
-
-const timeToMinutes = (hhmm: string) => {
-  const [hRaw, mRaw] = hhmm.split(':');
-  const h = Number(hRaw);
-  const m = Number(mRaw);
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
-  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
-  return h * 60 + m;
-};
-
-const overlaps = (aStart: number, aEnd: number, bStart: number, bEnd: number) => aStart < bEnd && bStart < aEnd;
-
-const getDayKind = async (dateYmd: string, weekday0to6: number) => {
-  const isWeekend = weekday0to6 === 0 || weekday0to6 === 6;
-  const holiday = await database
-    .prepare(`SELECT 1 FROM holidays WHERE date = ? AND scope IN (${holidayScopes.map(() => '?').join(',')}) LIMIT 1`)
-    .bind(dateYmd, ...holidayScopes)
-    .first();
-  if (holiday) return 'festivo' as const;
-  if (isWeekend) return 'fin_semana' as const;
-  return 'laborable' as const;
-};
-
-const matchesWorkerType = (required: string | null, workerType: 'laborable' | 'festivo' | 'ambos') => {
-  const req = required ?? 'ambos';
-  if (req === 'ambos') return true;
-  if (workerType === 'ambos') return true;
-  return workerType === req;
-};
-
-const autoAssignWeekRange = async (startYmd: string, endYmd: string) => {
-  const workers = await database
-    .prepare(`SELECT id, name, worker_type FROM workers WHERE active = 1 ORDER BY name ASC`)
-    .all<{ id: string; name: string; worker_type: 'laborable' | 'festivo' | 'ambos' }>();
-  if (workers.results.length === 0) return;
-
-  const weekAssignments = await database
-    .prepare(
-      `SELECT a.id, a.date, a.kind, a.planned_start, a.planned_end, a.service_user_id, a.assigned_worker_id,
-              t.required_worker_type, t.preferred_worker_id
-       FROM assignments a
-       LEFT JOIN service_templates t ON t.id = a.template_id
-       WHERE a.date >= ? AND a.date <= ? AND a.status != 'cancelled'
-       ORDER BY a.date ASC, a.planned_start ASC, a.id ASC`
-    )
-    .bind(startYmd, endYmd)
-    .all<{
-      id: string;
-      date: string;
-      kind: string;
-      planned_start: string;
-      planned_end: string;
-      service_user_id: string;
-      assigned_worker_id: string | null;
-      required_worker_type: string | null;
-      preferred_worker_id: string | null;
-    }>();
-
-  const workerIntervalsByDate = new Map<string, { start: number; end: number }[]>();
-  const workerLoadMinutes = new Map<string, number>();
-  for (const a of weekAssignments.results) {
-    if (!a.assigned_worker_id) continue;
-    const start = timeToMinutes(a.planned_start);
-    const end = timeToMinutes(a.planned_end);
-    if (start === null || end === null) continue;
-    const key = `${a.assigned_worker_id}|${a.date}`;
-    const arr = workerIntervalsByDate.get(key) ?? [];
-    arr.push({ start, end });
-    workerIntervalsByDate.set(key, arr);
-    workerLoadMinutes.set(a.assigned_worker_id, (workerLoadMinutes.get(a.assigned_worker_id) ?? 0) + Math.max(0, end - start));
-  }
-
-  for (const a of weekAssignments.results.filter((x) => !x.assigned_worker_id)) {
-    const start = timeToMinutes(a.planned_start);
-    const end = timeToMinutes(a.planned_end);
-    if (start === null || end === null) continue;
-
-    const habitualWorkerId = a.preferred_worker_id ?? null;
-
-    const candidates = workers.results
-      .map((w) => {
-        const key = `${w.id}|${a.date}`;
-        const intervals = workerIntervalsByDate.get(key) ?? [];
-        const available = !intervals.some((it) => overlaps(start, end, it.start, it.end));
-        const compatible = matchesWorkerType(a.required_worker_type, w.worker_type);
-        const habitual = habitualWorkerId === w.id;
-        const loadMinutes = workerLoadMinutes.get(w.id) ?? 0;
-        return { w, available, compatible, habitual, loadMinutes };
-      })
-      .sort((x, y) =>
-        Number(y.compatible) - Number(x.compatible) ||
-        Number(y.available) - Number(x.available) ||
-        Number(y.habitual) - Number(x.habitual) ||
-        x.loadMinutes - y.loadMinutes ||
-        x.w.name.localeCompare(y.w.name)
-      );
-
-    const pick = candidates.find((c) => c.compatible && c.available)
-      ?? candidates.find((c) => c.available)
-      ?? candidates.find((c) => c.compatible)
-      ?? candidates[0];
-    if (!pick) continue;
-
-    await database.prepare(`UPDATE assignments SET assigned_worker_id = ? WHERE id = ?`).bind(pick.w.id, a.id).run();
-    const key = `${pick.w.id}|${a.date}`;
-    const arr = workerIntervalsByDate.get(key) ?? [];
-    arr.push({ start, end });
-    workerIntervalsByDate.set(key, arr);
-    workerLoadMinutes.set(pick.w.id, (workerLoadMinutes.get(pick.w.id) ?? 0) + Math.max(0, end - start));
-  }
-};
-
 if (Astro.request.method === 'POST') {
   const formData = await Astro.request.formData();
-  const action = String(formData.get('_action') ?? 'generate');
+  const action = String(formData.get('_action') ?? 'regenerate_week');
 
   let assignmentsChanged = false;
   const cf = Astro.locals.cfContext;
   const queuePush = (workerIds: string[]) => {
-    // No bloquea la respuesta; si push no está configurado, no hace nada.
     cf?.waitUntil(
       sendPushToWorkerIds(database, workerIds, {
         title: 'Planificación actualizada',
@@ -172,7 +58,7 @@ if (Astro.request.method === 'POST') {
   }
 
   if (action === 'auto_assign') {
-    await autoAssignWeekRange(toYmd(new Date(weekDates[0])), toYmd(new Date(weekDates[6])));
+    await autoAssignWeekRange(database, toYmd(new Date(weekDates[0])), toYmd(new Date(weekDates[6])));
     const allWorkers = await database
       .prepare(`SELECT id FROM workers WHERE active = 1`)
       .all<{ id: string }>();
@@ -182,76 +68,8 @@ if (Astro.request.method === 'POST') {
   }
 
   if (action === 'regenerate_week') {
-    await database
-      .prepare(`DELETE FROM assignments WHERE source = 'template' AND status != 'done' AND date >= ? AND date <= ?`)
-      .bind(toYmd(new Date(weekDates[0])), toYmd(new Date(weekDates[6])))
-      .run();
-    assignmentsChanged = true;
-  }
-
-  const dates = weekDates.map((d) => ({ d, ymd: toYmd(new Date(d)) }));
-
-  const users = await database
-    .prepare(`SELECT id, name FROM service_users WHERE active = 1 ORDER BY created_at ASC`)
-    .all<{ id: string; name: string }>();
-
-  const templates = await database
-    .prepare(
-      `SELECT id, service_user_id, kind, weekday, start_time, end_time
-       FROM service_templates
-       ORDER BY service_user_id ASC, kind ASC, weekday ASC, start_time ASC`
-    )
-    .all<{ id: string; service_user_id: string; kind: 'laborable' | 'festivo'; weekday: number | null; start_time: string; end_time: string }>();
-
-  const byUser = new Map<string, (typeof templates.results)[number][]>();
-  for (const t of templates.results) {
-    const arr = byUser.get(t.service_user_id) ?? [];
-    arr.push(t);
-    byUser.set(t.service_user_id, arr);
-  }
-
-  for (const u of users.results) {
-    const userTemplates = byUser.get(u.id) ?? [];
-    if (userTemplates.length === 0) continue;
-
-    for (const { d, ymd } of dates) {
-      const weekday = d.getUTCDay(); // 0..6
-      const kind = await getDayKind(ymd, weekday);
-
-      const applicable = userTemplates.filter((t) => {
-        if (kind === 'laborable') {
-          if (t.kind !== 'laborable') return false;
-          if (t.weekday === null) return true;
-          return t.weekday === weekday;
-        }
-        // festivo o fin_semana
-        if (t.kind !== 'festivo') return false;
-        if (t.weekday === null) return true;
-        return t.weekday === weekday;
-      });
-
-      for (const t of applicable) {
-        await database
-          .prepare(
-            `INSERT INTO assignments
-              (id, date, service_user_id, template_id, kind, planned_start, planned_end, source)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'template')
-             ON CONFLICT(service_user_id, date, template_id) DO UPDATE SET
-               kind = excluded.kind,
-               planned_start = excluded.planned_start,
-               planned_end = excluded.planned_end,
-               status = 'planned',
-               source = 'template'`
-          )
-          .bind(randomId(), ymd, u.id, t.id, kind === 'fin_semana' ? 'fin_semana' : t.kind, t.start_time, t.end_time)
-          .run();
-        assignmentsChanged = true;
-      }
-    }
-  }
-
-  if (action === 'generate' || action === 'regenerate_week') {
-    await autoAssignWeekRange(toYmd(new Date(weekDates[0])), toYmd(new Date(weekDates[6])));
+    const dates = weekDates.map((d) => ({ d: new Date(d), ymd: toYmd(new Date(d)) }));
+    await generateWeek(database, dates, true);
     assignmentsChanged = true;
   }
 
@@ -383,17 +201,15 @@ const formatMinutes = (minutes: number) => {
 ---
 
 <AppLayout title="Agenda semanal | Admin">
-  <div class="flex items-center justify-between border-b border-zinc-200 pb-4">
+  <div class="flex flex-col md:flex-row md:items-center justify-between border-b border-zinc-200 pb-4 gap-4">
     <div>
       <div class="flex items-center gap-2">
         <a class="text-sm font-medium text-zinc-500 hover:text-zinc-800 transition-colors" href="/admin">Panel de control</a>
         <span class="text-zinc-400">/</span>
-        <span class="text-sm font-medium text-zinc-800">Agenda</span>
+        <span class="text-sm font-medium text-zinc-800">Agenda Semanal</span>
       </div>
-      <h1 class="mt-2 text-2xl font-bold tracking-tight text-zinc-900">Agenda Semanal</h1>
-      <div class="mt-2 flex flex-wrap items-center gap-2 text-sm text-zinc-600">
-        <span>Semana: <span class="font-bold text-zinc-800">{weekKey}</span></span>
-        <span class="text-zinc-300">•</span>
+      <div class="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-600">
+        <span class="text-xl font-bold tracking-tight text-zinc-900 mr-2">Semana {weekKey}</span>
         <button type="button" id="reset-filters" class="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-200 transition-colors cursor-pointer" title="Ver todos los servicios">
           {assignments.results.length} servicios
         </button>
@@ -406,32 +222,29 @@ const formatMinutes = (minutes: number) => {
       </div>
     </div>
 
-    <div class="flex items-center gap-3">
-      <form method="get" class="flex items-center gap-2">
-        <input class="w-36 rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all" name="week" value={weekKey} />
-        <button class="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50 transition-colors shadow-sm">Ir</button>
+    <div class="flex flex-wrap items-center gap-2">
+      <form method="get" class="flex items-center">
+        <input class="w-32 rounded-l-lg border border-zinc-300 border-r-0 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all" name="week" value={weekKey} />
+        <button class="rounded-r-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium hover:bg-zinc-50 transition-colors shadow-sm">Ir</button>
       </form>
-      <a href="/admin/schedule/month" class="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50 transition-colors shadow-sm">
-        Vista mensual
+      
+      <a href="/admin/schedule/month" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium hover:bg-zinc-50 transition-colors shadow-sm" title="Vista mensual">
+        Mes
       </a>
-      <form method="post">
-        <input type="hidden" name="_action" value="generate" />
-        <button class="flex items-center gap-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 transition-colors px-4 py-2 text-sm font-bold text-white shadow-sm">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-          Generar de plantillas
-        </button>
-      </form>
+      
       <form method="post" onsubmit="return confirm('Esto recalcula la semana desde plantillas y borra servicios de origen plantilla no finalizados. ¿Continuar?');">
         <input type="hidden" name="_action" value="regenerate_week" />
-        <button class="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 transition-colors px-4 py-2 text-sm font-semibold text-zinc-800 shadow-sm">
-          Regenerar semana
+        <button class="flex items-center gap-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 transition-colors px-3 py-2 text-sm font-bold text-white shadow-sm" title="Regenerar la semana entera desde plantillas">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><polyline points="3 3 3 8 8 8"></polyline></svg>
+          Regenerar
         </button>
       </form>
+      
       <form method="post">
         <input type="hidden" name="_action" value="auto_assign" />
-        <button class="flex items-center gap-2 rounded-lg bg-[#0284C7] hover:bg-sky-700 transition-colors px-4 py-2 text-sm font-bold text-white shadow-sm" title="Asigna automáticamente la trabajadora más adecuada a los turnos sin asignar">
+        <button class="flex items-center gap-1 rounded-lg bg-[#0284C7] hover:bg-sky-700 transition-colors px-3 py-2 text-sm font-bold text-white shadow-sm" title="Asignar automáticamente a las trabajadoras">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><polyline points="16 11 18 13 22 9"></polyline></svg>
-          Auto-asignar vacíos
+          Asignar
         </button>
       </form>
     </div>
