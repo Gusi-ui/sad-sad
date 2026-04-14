@@ -320,7 +320,7 @@ const workers = await database
 
 type WorkerRow = (typeof workers.results)[number];
 
-const workerIntervalsByDate = new Map<string, { start: number; end: number }[]>();
+const workerIntervalsByDate = new Map<string, { id: string; start: number; end: number }[]>();
 for (const a of assignments.results) {
   if (!a.assigned_worker_id) continue;
   const start = timeToMinutes(a.planned_start);
@@ -328,7 +328,7 @@ for (const a of assignments.results) {
   if (start === null || end === null) continue;
   const key = `${a.assigned_worker_id}|${a.date}`;
   const arr = workerIntervalsByDate.get(key) ?? [];
-  arr.push({ start, end });
+  arr.push({ id: a.id, start, end });
   workerIntervalsByDate.set(key, arr);
 }
 
@@ -359,10 +359,11 @@ const workerOperationalSummary = workers.results
   .filter((w) => w.services > 0)
   .sort((a, b) => b.services - a.services || b.minutes - a.minutes || a.name.localeCompare(b.name));
 
-const getWorkerAvailability = (workerId: string, date: string, start: number, end: number) => {
+const getWorkerAvailability = (workerId: string, date: string, start: number, end: number, assignmentId: string) => {
   const key = `${workerId}|${date}`;
   const intervals = workerIntervalsByDate.get(key) ?? [];
   for (const it of intervals) {
+    if (it.id === assignmentId) continue;
     if (overlaps(start, end, it.start, it.end)) return { available: false as const };
   }
   return { available: true as const };
@@ -488,8 +489,8 @@ const formatMinutes = (minutes: number) => {
     <div class="p-6 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/50">
       <h2 class="text-lg font-bold text-zinc-900" id="assignments-count">Servicios Planificados ({assignments.results.length})</h2>
     </div>
-    <div>
-      <table class="w-full table-fixed text-left text-sm">
+    <div class="overflow-x-auto">
+      <table class="w-full min-w-[800px] table-fixed text-left text-sm">
         <thead class="bg-zinc-50 text-xs uppercase text-zinc-500 border-b border-zinc-200">
           <tr>
             <th class="px-6 py-3 font-semibold">Fecha</th>
@@ -524,7 +525,7 @@ const formatMinutes = (minutes: number) => {
 
                   const candidates = workers.results
                     .map((w: WorkerRow) => {
-                      const availability = getWorkerAvailability(w.id, a.date, start, end);
+                      const availability = getWorkerAvailability(w.id, a.date, start, end, a.id);
                       const loadMinutes = workerLoadMinutes.get(w.id) ?? 0;
                       
                       let habitualWorkerId = a.preferred_worker_id ?? null;

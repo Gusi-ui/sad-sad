@@ -18,37 +18,41 @@ const account = Astro.locals.account;
     </form>
   </div>
 
-  <div class="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-    <a class="group rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm hover:border-[#0284C7] hover:shadow-md transition-all" href="/admin/workers">
-      <div class="mb-4 inline-flex rounded-xl bg-blue-50 p-3 text-[#0284C7] group-hover:scale-110 transition-transform">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+  <div class="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+    <a class="group relative overflow-hidden rounded-3xl border border-zinc-200/60 bg-white p-7 shadow-sm hover:border-[#0284C7] hover:shadow-lg transition-all duration-300 ease-out hover:-translate-y-1" href="/admin/workers">
+      <div class="absolute right-0 top-0 h-32 w-32 -translate-y-8 translate-x-8 rounded-full bg-sky-50/50 opacity-0 transition-opacity group-hover:opacity-100 blur-2xl"></div>
+      <div class="mb-5 inline-flex rounded-2xl bg-gradient-to-br from-blue-50 to-sky-100 p-3.5 text-[#0284C7] group-hover:scale-110 group-hover:rotate-3 transition-all duration-300 shadow-inner">
+        <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
       </div>
-      <div class="text-lg font-bold text-zinc-900">Trabajadoras</div>
-      <div class="mt-1 text-sm text-zinc-500">Altas, cuentas de app, contratos y resumen de horas.</div>
+      <div class="text-xl font-extrabold tracking-tight text-zinc-900">Trabajadoras</div>
+      <div class="mt-2 text-sm leading-relaxed text-zinc-500">Altas, bajas, datos de contacto, contratos y control de horas operativas.</div>
     </a>
 
-    <a class="group rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm hover:border-[#0284C7] hover:shadow-md transition-all" href="/admin/users">
-      <div class="mb-4 inline-flex rounded-xl bg-emerald-50 p-3 text-emerald-600 group-hover:scale-110 transition-transform">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+    <a class="group relative overflow-hidden rounded-3xl border border-zinc-200/60 bg-white p-7 shadow-sm hover:border-emerald-500 hover:shadow-lg transition-all duration-300 ease-out hover:-translate-y-1" href="/admin/users">
+      <div class="absolute right-0 top-0 h-32 w-32 -translate-y-8 translate-x-8 rounded-full bg-emerald-50/50 opacity-0 transition-opacity group-hover:opacity-100 blur-2xl"></div>
+      <div class="mb-5 inline-flex rounded-2xl bg-gradient-to-br from-emerald-50 to-green-100 p-3.5 text-emerald-600 group-hover:scale-110 group-hover:-rotate-3 transition-all duration-300 shadow-inner">
+        <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
       </div>
-      <div class="text-lg font-bold text-zinc-900">Usuarios/as</div>
-      <div class="mt-1 text-sm text-zinc-500">Beneficiarios del servicio, cuotas y plantillas maestras.</div>
+      <div class="text-xl font-extrabold tracking-tight text-zinc-900">Usuarios/as</div>
+      <div class="mt-2 text-sm leading-relaxed text-zinc-500">Beneficiarios del servicio, cuotas y plantillas maestras.</div>
     </a>
 
-    <a class="group rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm hover:border-[#0284C7] hover:shadow-md transition-all" href="/admin/schedule/week">
-      <div class="mb-4 inline-flex rounded-xl bg-indigo-50 p-3 text-indigo-600 group-hover:scale-110 transition-transform">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line><path d="M8 14h.01"></path><path d="M12 14h.01"></path><path d="M16 14h.01"></path><path d="M8 18h.01"></path><path d="M12 18h.01"></path><path d="M16 18h.01"></path></svg>
+    <a class="group relative overflow-hidden rounded-3xl border border-zinc-200/60 bg-white p-7 shadow-sm hover:border-indigo-500 hover:shadow-lg transition-all duration-300 ease-out hover:-translate-y-1" href="/admin/schedule/week">
+      <div class="absolute right-0 top-0 h-32 w-32 -translate-y-8 translate-x-8 rounded-full bg-indigo-50/50 opacity-0 transition-opacity group-hover:opacity-100 blur-2xl"></div>
+      <div class="mb-5 inline-flex rounded-2xl bg-gradient-to-br from-indigo-50 to-violet-100 p-3.5 text-indigo-600 group-hover:scale-110 group-hover:rotate-3 transition-all duration-300 shadow-inner">
+        <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line><path d="M8 14h.01"></path><path d="M12 14h.01"></path><path d="M16 14h.01"></path><path d="M8 18h.01"></path><path d="M12 18h.01"></path><path d="M16 18h.01"></path></svg>
       </div>
-      <div class="text-lg font-bold text-zinc-900">Agenda Semanal</div>
-      <div class="mt-1 text-sm text-zinc-500">Generar cuadrantes, asignar turnos y gestionar huecos.</div>
+      <div class="text-xl font-extrabold tracking-tight text-zinc-900">Agenda Semanal</div>
+      <div class="mt-2 text-sm leading-relaxed text-zinc-500">Generar cuadrantes, asignar turnos y gestionar huecos.</div>
     </a>
 
-    <a class="group rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm hover:border-[#0284C7] hover:shadow-md transition-all" href="/admin/holidays">
-      <div class="mb-4 inline-flex rounded-xl bg-orange-50 p-3 text-orange-600 group-hover:scale-110 transition-transform">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>
+    <a class="group relative overflow-hidden rounded-3xl border border-zinc-200/60 bg-white p-7 shadow-sm hover:border-purple-500 hover:shadow-lg transition-all duration-300 ease-out hover:-translate-y-1" href="/admin/balances">
+      <div class="absolute right-0 top-0 h-32 w-32 -translate-y-8 translate-x-8 rounded-full bg-purple-50/50 opacity-0 transition-opacity group-hover:opacity-100 blur-2xl"></div>
+      <div class="mb-5 inline-flex rounded-2xl bg-gradient-to-br from-purple-50 to-fuchsia-100 p-3.5 text-purple-600 group-hover:scale-110 group-hover:-rotate-3 transition-all duration-300 shadow-inner">
+        <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
       </div>
-      <div class="text-lg font-bold text-zinc-900">Festivos</div>
-      <div class="mt-1 text-sm text-zinc-500">Gestión de calendario de festivos locales y nacionales.</div>
+      <div class="text-xl font-extrabold tracking-tight text-zinc-900">Balances</div>
+      <div class="mt-2 text-sm leading-relaxed text-zinc-500">Control de horas, cuotas y cierres mensuales.</div>
     </a>
   </div>
 </AppLayout>

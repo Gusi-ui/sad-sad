@@ -51,8 +51,9 @@ const fmt = (h: number) => formatHours(h);
   </form>
 
   <div class="mt-6 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
-    <table class="w-full text-sm">
-      <thead class="bg-zinc-50 text-left text-xs uppercase tracking-wider text-zinc-600">
+    <div class="overflow-x-auto">
+      <table class="w-full min-w-[600px] text-sm">
+        <thead class="bg-zinc-50 text-left text-xs uppercase tracking-wider text-zinc-600">
         <tr>
           <th class="px-4 py-3">Usuario/a</th>
           <th class="px-4 py-3">Cuota mes</th>
@@ -85,5 +86,6 @@ const fmt = (h: number) => formatHours(h);
         })}
       </tbody>
     </table>
+    </div>
   </div>
 </AppLayout>
