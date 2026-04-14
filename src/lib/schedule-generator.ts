@@ -1,5 +1,19 @@
 import { randomId } from './crypto';
 
+// Mismo tipo usado en balances.ts para tipar la base de datos
+export type D1DatabaseLike = {
+  prepare: (query: string) => {
+    bind: (...args: any[]) => {
+      all: <T = Record<string, unknown>>() => Promise<{ results: T[] }>;
+      first: <T = Record<string, unknown>>() => Promise<T | null>;
+      run: () => Promise<any>;
+    };
+    all: <T = Record<string, unknown>>() => Promise<{ results: T[] }>;
+    first: <T = Record<string, unknown>>() => Promise<T | null>;
+    run: () => Promise<any>;
+  };
+};
+
 const holidayScopes = ['national', 'catalonia', 'barcelona', 'mataro'] as const;
 
 export const timeToMinutes = (hhmm: string) => {
@@ -13,7 +27,7 @@ export const timeToMinutes = (hhmm: string) => {
 
 export const overlaps = (aStart: number, aEnd: number, bStart: number, bEnd: number) => aStart < bEnd && bStart < aEnd;
 
-export const getDayKind = async (database: any, dateYmd: string, weekday0to6: number) => {
+export const getDayKind = async (database: D1DatabaseLike, dateYmd: string, weekday0to6: number) => {
   const isWeekend = weekday0to6 === 0 || weekday0to6 === 6;
   const holiday = await database
     .prepare(`SELECT 1 FROM holidays WHERE date = ? AND scope IN (${holidayScopes.map(() => '?').join(',')}) LIMIT 1`)
@@ -31,7 +45,7 @@ export const matchesWorkerType = (required: string | null, workerType: 'laborabl
   return workerType === req;
 };
 
-export const autoAssignWeekRange = async (database: any, startYmd: string, endYmd: string) => {
+export const autoAssignWeekRange = async (database: D1DatabaseLike, startYmd: string, endYmd: string) => {
   const workers = await database
     .prepare(`SELECT id, name, worker_type FROM workers WHERE active = 1 ORDER BY name ASC`)
     .all<{ id: string; name: string; worker_type: 'laborable' | 'festivo' | 'ambos' }>();
@@ -113,7 +127,7 @@ export const autoAssignWeekRange = async (database: any, startYmd: string, endYm
   }
 };
 
-export const generateWeek = async (database: any, dates: {d: Date, ymd: string}[], regenerate: boolean) => {
+export const generateWeek = async (database: D1DatabaseLike, dates: {d: Date, ymd: string}[], regenerate: boolean) => {
   if (regenerate) {
     await database
       .prepare(`DELETE FROM assignments WHERE source = 'template' AND status != 'done' AND date >= ? AND date <= ?`)

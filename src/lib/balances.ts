@@ -292,7 +292,6 @@ export const computeWorkersForecastServiceMinutesForMonth = async (db: D1Databas
     assignmentsByUserDate.set(k, arr);
   }
 
-  const usersById = new Map<string, ServiceUserPrefRow>(users.results.map((u: ServiceUserPrefRow) => [u.id, u]));
   const totals = new Map<string, number>(); // workerId -> minutes
 
   for (let day = 1; day <= daysInMonth; day += 1) {
@@ -302,7 +301,6 @@ export const computeWorkersForecastServiceMinutesForMonth = async (db: D1Databas
     const kind = classifyDay(ymd, weekday, holidayDates);
 
     for (const uid of userIds) {
-      const u = usersById.get(uid)!;
       const dayAssignments = assignmentsByUserDate.get(udk(uid, ymd));
       if (dayAssignments && dayAssignments.length > 0) {
         // Assignments mandan

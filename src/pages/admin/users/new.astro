@@ -24,9 +24,7 @@ if (Astro.request.method === 'POST') {
   }
 }
 
-const workers = await db()
-  .prepare(`SELECT id, name FROM workers WHERE active = 1 ORDER BY name ASC`)
-  .all<{ id: string; name: string }>();
+
 ---
 
 <AppLayout title="Nuevo Usuario/a | Admin">
