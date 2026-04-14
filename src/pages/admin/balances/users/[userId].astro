@@ -2,6 +2,7 @@
 import AppLayout from '../../../../layouts/AppLayout.astro';
 import { db } from '../../../../lib/db';
 import { computeUserBalanceDetail, hours } from '../../../../lib/balances';
+import { formatHours } from '../../../../lib/month-hours';
 
 export const prerender = false;
 
@@ -16,8 +17,6 @@ const safeMonth = Number.isFinite(month) && month >= 1 && month <= 12 ? month : 
 
 const detail = await computeUserBalanceDetail(db(), userId, safeYear, safeMonth);
 if (!detail) return Astro.redirect('/admin/balances/users');
-
-import { formatHours } from '../../../../lib/month-hours.ts';
 
 const fmt = (h: number) => formatHours(h);
 const weekdayName = (d: number) => ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][d] ?? '';

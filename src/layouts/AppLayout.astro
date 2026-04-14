@@ -7,7 +7,8 @@ type Props = {
 
 const { title } = Astro.props;
 const pathname = Astro.url.pathname;
-const isAdminRoute = pathname.startsWith('/admin') && pathname !== '/admin';
+const isAdminRoute = pathname.startsWith('/admin');
+const account = Astro.locals.account;
 ---
 
 <!doctype html>
@@ -25,26 +26,47 @@ const isAdminRoute = pathname.startsWith('/admin') && pathname !== '/admin';
 
     {isAdminRoute && (
       <header class="sticky top-0 z-50 w-full border-b border-zinc-200/80 bg-white/70 backdrop-blur-xl shadow-[0_4px_20px_-10px_rgba(0,0,0,0.05)]">
-        <div class="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4">
-          <div class="flex items-center gap-6">
+        <div class="mx-auto flex min-h-14 w-full max-w-6xl items-center justify-between gap-3 px-4 py-2">
+          <div class="flex items-center gap-5">
             <a href="/admin" class="flex items-center gap-2 font-bold text-zinc-900 hover:text-[#0284C7] transition-colors" title="Volver al Inicio">
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
               <span>SAD-SAD</span>
             </a>
-            <nav class="hidden md:flex items-center gap-4 text-sm font-medium">
-              <a href="/admin/workers" class={`hover:text-[#0284C7] transition-colors ${pathname.startsWith('/admin/workers') ? 'text-[#0284C7]' : 'text-zinc-600'}`}>Trabajadoras</a>
-              <a href="/admin/users" class={`hover:text-emerald-600 transition-colors ${pathname.startsWith('/admin/users') ? 'text-emerald-600' : 'text-zinc-600'}`}>Usuarios/as</a>
-              <a href="/admin/schedule/week" class={`hover:text-indigo-600 transition-colors ${pathname.startsWith('/admin/schedule') ? 'text-indigo-600' : 'text-zinc-600'}`}>Agenda</a>
-              <a href="/admin/balances" class={`hover:text-zinc-900 transition-colors ${pathname.startsWith('/admin/balances') ? 'text-zinc-900' : 'text-zinc-600'}`}>Balances</a>
-              <a href="/admin/holidays" class={`hover:text-orange-600 transition-colors ${pathname.startsWith('/admin/holidays') ? 'text-orange-600' : 'text-zinc-600'}`}>Festivos</a>
+            <nav class="hidden lg:flex items-center gap-1 text-sm font-semibold">
+              <a href="/admin/workers" class={`rounded-full px-3 py-1.5 transition-colors ${pathname.startsWith('/admin/workers') ? 'bg-sky-100 text-[#0284C7]' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'}`}>Trabajadoras</a>
+              <a href="/admin/users" class={`rounded-full px-3 py-1.5 transition-colors ${pathname.startsWith('/admin/users') ? 'bg-emerald-100 text-emerald-800' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'}`}>Usuarios/as</a>
+              <a href="/admin/schedule/week" class={`rounded-full px-3 py-1.5 transition-colors ${pathname.startsWith('/admin/schedule') ? 'bg-indigo-100 text-indigo-800' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'}`}>Agenda</a>
+              <a href="/admin/balances" class={`rounded-full px-3 py-1.5 transition-colors ${pathname.startsWith('/admin/balances') ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'}`}>Balances</a>
+              <a href="/admin/holidays" class={`rounded-full px-3 py-1.5 transition-colors ${pathname.startsWith('/admin/holidays') ? 'bg-orange-100 text-orange-800' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'}`}>Festivos</a>
             </nav>
           </div>
-          <div class="md:hidden flex items-center gap-3">
-             <a href="/admin/workers" class="text-xs font-medium text-zinc-600 hover:text-[#0284C7]">Trab.</a>
-             <a href="/admin/users" class="text-xs font-medium text-zinc-600 hover:text-emerald-600">Usua.</a>
-             <a href="/admin/schedule/week" class="text-xs font-medium text-zinc-600 hover:text-indigo-600">Agen.</a>
-             <a href="/admin/balances" class="text-xs font-medium text-zinc-600 hover:text-zinc-900">Bal.</a>
-             <a href="/admin/holidays" class="text-xs font-medium text-zinc-600 hover:text-orange-600">Fest.</a>
+
+          <div class="flex items-center gap-2">
+            <nav class="lg:hidden flex max-w-[56vw] items-center gap-1 overflow-x-auto whitespace-nowrap rounded-full border border-zinc-200 bg-white/70 px-1 py-1">
+              <a href="/admin/workers" class={`rounded-full px-2.5 py-1 text-xs font-semibold transition-colors ${pathname.startsWith('/admin/workers') ? 'bg-sky-100 text-[#0284C7]' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'}`}>Trab.</a>
+              <a href="/admin/users" class={`rounded-full px-2.5 py-1 text-xs font-semibold transition-colors ${pathname.startsWith('/admin/users') ? 'bg-emerald-100 text-emerald-800' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'}`}>Usua.</a>
+              <a href="/admin/schedule/week" class={`rounded-full px-2.5 py-1 text-xs font-semibold transition-colors ${pathname.startsWith('/admin/schedule') ? 'bg-indigo-100 text-indigo-800' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'}`}>Agenda</a>
+              <a href="/admin/balances" class={`rounded-full px-2.5 py-1 text-xs font-semibold transition-colors ${pathname.startsWith('/admin/balances') ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'}`}>Bal.</a>
+              <a href="/admin/holidays" class={`rounded-full px-2.5 py-1 text-xs font-semibold transition-colors ${pathname.startsWith('/admin/holidays') ? 'bg-orange-100 text-orange-800' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'}`}>Fest.</a>
+            </nav>
+
+            <div class="hidden md:flex items-center gap-3 pl-3 border-l border-zinc-200/80">
+              <div class="hidden xl:block text-xs font-medium text-zinc-500 max-w-[220px] truncate" title={account?.email ?? ''}>
+                {account?.email ?? ''}
+              </div>
+              <form method="post" action="/api/auth/logout">
+                <button class="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 hover:text-rose-700 transition-colors shadow-sm">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                  Salir
+                </button>
+              </form>
+            </div>
+
+            <form method="post" action="/api/auth/logout" class="md:hidden">
+              <button class="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-white p-2 text-zinc-700 hover:bg-zinc-50 hover:text-rose-700 transition-colors shadow-sm" title="Cerrar sesión">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+              </button>
+            </form>
           </div>
         </div>
       </header>

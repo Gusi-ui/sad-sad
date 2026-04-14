@@ -4,18 +4,11 @@ const account = Astro.locals.account;
 ---
 
 <AppLayout title="Admin | SAD-SAD">
-  <div class="flex items-center justify-between">
+  <div>
     <div>
       <h1 class="text-3xl font-bold tracking-tight text-zinc-900">Panel de Control SAD-SAD</h1>
       <p class="mt-1 text-sm text-zinc-600">Sesión iniciada como: <span class="font-medium text-zinc-800">{account?.email}</span></p>
     </div>
-
-    <form method="post" action="/api/auth/logout">
-      <button class="flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 hover:text-red-600 transition-colors shadow-sm">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
-        Cerrar sesión
-      </button>
-    </form>
   </div>
 
   <div class="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
@@ -56,4 +49,3 @@ const account = Astro.locals.account;
     </a>
   </div>
 </AppLayout>
-
