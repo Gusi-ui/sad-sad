@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 import { db } from '../../../lib/db';
 import { datesOfIsoWeek, getIsoWeekKey, toYmd } from '../../../lib/dates';
 import { generateWeek } from '../../../lib/schedule-generator';
@@ -9,8 +10,8 @@ export const GET: APIRoute = async ({ request, locals }) => {
   const url = new URL(request.url);
   const token = url.searchParams.get('token');
 
-  // Asegúrate de definir CRON_SECRET en tus variables de entorno (.dev.vars y Cloudflare Dashboard)
-  const expectedToken = import.meta.env.CRON_SECRET || 'secret-cron-token-123';
+  // Accedemos al secreto desde el entorno de Cloudflare de forma segura
+  const expectedToken = (env as any).CRON_SECRET || 'secret-cron-token-123';
 
   if (token !== expectedToken) {
     return new Response('Unauthorized', { status: 401 });
