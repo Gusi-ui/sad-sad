@@ -44,23 +44,59 @@ const formatDuration = (minutes: number) => {
   const total = Math.max(0, Math.floor(minutes));
   const h = Math.floor(total / 60);
   const m = total % 60;
-  return `${h} h ${String(m).padStart(2, '0')} min`;
+  const sign = minutes < 0 ? '-' : '';
+  return `${sign}${h} h ${String(m).padStart(2, '0')} min`;
 };
 
+const extras = await db()
+  .prepare('SELECT date, travel_minutes FROM worker_day_extras WHERE worker_id = ? AND date >= ? AND date <= ?')
+  .bind(workerId, startYmd, endYmd)
+  .all<{ date: string; travel_minutes: number }>();
+
+const travelByDate = new Map<string, number>(extras.results.map((r) => [r.date, r.travel_minutes ?? 0]));
+
+const contracts = await db()
+  .prepare('SELECT hours_per_week, hours_per_month, start_date, end_date FROM worker_contracts WHERE worker_id = ?')
+  .bind(workerId)
+  .all<{ hours_per_week: number; hours_per_month: number | null; start_date: string; end_date: string | null }>();
+
+const contract = contracts.results.find(c => c.start_date <= endYmd && (!c.end_date || c.end_date >= startYmd));
+const weeklyContractHours = contract?.hours_per_week ?? 37;
+
 const assignmentsByDate = new Map<string, Array<AssignmentRow>>();
-let totalMinutes = 0;
+let totalServicesMinutes = 0;
+let totalBreakMinutes = 0;
+let totalTravelMinutes = 0;
 
 for (const a of assignments.results) {
   const list = assignmentsByDate.get(a.date) ?? [];
   list.push(a);
   assignmentsByDate.set(a.date, list);
-
-  const start = timeToMinutes(a.planned_start);
-  const end = timeToMinutes(a.planned_end);
-  if (start !== null && end !== null) {
-    totalMinutes += Math.max(0, end - start);
-  }
 }
+
+for (const d of weekDates) {
+  const ymd = toYmd(new globalThis.Date(d));
+  const dayAssignments = assignmentsByDate.get(ymd) ?? [];
+  let dayServicesMinutes = 0;
+  for (const a of dayAssignments) {
+    const start = timeToMinutes(a.planned_start);
+    const end = timeToMinutes(a.planned_end);
+    if (start !== null && end !== null) {
+      dayServicesMinutes += Math.max(0, end - start);
+    }
+  }
+  
+  const dayTravelMinutes = travelByDate.get(ymd) ?? 0;
+  const dayBreakMinutes = dayServicesMinutes > 6 * 60 ? 20 : 0;
+  
+  totalServicesMinutes += dayServicesMinutes;
+  totalTravelMinutes += dayTravelMinutes;
+  totalBreakMinutes += dayBreakMinutes;
+}
+
+const totalPayableMinutes = totalServicesMinutes + totalBreakMinutes + totalTravelMinutes;
+const contractMinutes = weeklyContractHours * 60;
+const weeklyDeficitMinutes = totalPayableMinutes - contractMinutes;
 
 const days = weekDates.map((d) => {
   const ymd = toYmd(new globalThis.Date(d));
@@ -68,9 +104,12 @@ const days = weekDates.map((d) => {
   return { ymd, label, assignments: assignmentsByDate.get(ymd) ?? [] };
 });
 
-const totalServiciosStr = formatDuration(totalMinutes);
-const totalActividadesStr = formatDuration(Math.floor(totalMinutes * 0.05));
-const totalDesplazamientoStr = formatDuration(Math.floor(totalMinutes * 0.1));
+const totalServiciosStr = formatDuration(totalServicesMinutes);
+const totalBreakStr = formatDuration(totalBreakMinutes);
+const totalDesplazamientoStr = formatDuration(totalTravelMinutes);
+const totalStr = formatDuration(totalPayableMinutes);
+const deficitStr = formatDuration(Math.abs(weeklyDeficitMinutes));
+const deficitIsPositive = weeklyDeficitMinutes >= 0;
 
 // Navigation logic
 const [yearStr, weekStr] = weekKey.split('-W');
@@ -164,13 +203,29 @@ const nextWeekKey = `${nextYearNum}-W${String(nextWeekNum).padStart(2, '0')}`;
         <span class="text-[15px] text-zinc-600">Tiempo servicios (Semana):</span>
         <span class="text-[15px] font-bold text-[#1E3A8A]">{totalServiciosStr}</span>
       </div>
-      <div class="flex items-center gap-2">
-        <span class="text-[15px] text-zinc-600">Tiempo actividades:</span>
-        <span class="text-[15px] font-bold text-[#1E3A8A]">{totalActividadesStr}</span>
-      </div>
+      {totalBreakMinutes > 0 && (
+        <div class="flex items-center gap-2">
+          <span class="text-[15px] text-zinc-600">Descansos (+6h/día):</span>
+          <span class="text-[15px] font-bold text-emerald-600">+{totalBreakStr}</span>
+        </div>
+      )}
       <div class="flex items-center gap-2">
         <span class="text-[15px] text-zinc-600">Tiempo desplazamiento:</span>
         <span class="text-[15px] font-bold text-[#1E3A8A]">{totalDesplazamientoStr}</span>
+      </div>
+      <div class="flex items-center justify-between pt-2 mt-2 border-t border-zinc-200">
+        <span class="text-[16px] font-bold text-zinc-800">Total suma horas:</span>
+        <span class="text-[16px] font-bold text-[#1E3A8A]">{totalStr}</span>
+      </div>
+      <div class="flex items-center justify-between pt-1">
+        <span class="text-[14px] text-zinc-500">Contrato Semanal:</span>
+        <span class="text-[14px] font-bold text-zinc-700">{weeklyContractHours} h</span>
+      </div>
+      <div class="flex items-center justify-between pt-1">
+        <span class="text-[14px] text-zinc-500">Balance:</span>
+        <span class={`text-[14px] font-bold ${deficitIsPositive ? 'text-emerald-600' : 'text-red-600'}`}>
+          {deficitIsPositive ? '+' : '-'}{deficitStr}
+        </span>
       </div>
     </div>
 

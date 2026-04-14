@@ -58,6 +58,15 @@ const totalMinutes = assignments.results.reduce((acc, a) => {
   return acc + Math.max(0, end - start);
 }, 0);
 
+const extra = await db()
+  .prepare('SELECT travel_minutes FROM worker_day_extras WHERE worker_id = ? AND date = ?')
+  .bind(workerId, dateYmd)
+  .first<{ travel_minutes: number | null }>();
+
+const travelMinutes = extra?.travel_minutes ?? 0;
+const breakMinutes = totalMinutes > 6 * 60 ? 20 : 0;
+const payableMinutes = totalMinutes + travelMinutes + breakMinutes;
+
 // Parse date for display: "10/04/2026"
 const dateParts = dateYmd.split('-');
 const displayDate = `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`;
@@ -67,9 +76,9 @@ const headerTitle = isToday ? 'Planificación de hoy' : `Planificación día ${d
 const subtitle = `Planificación a ${displayDate} - ${assignments.results.length} registros:`;
 
 const totalServiciosStr = formatDuration(totalMinutes);
-// Mock values for activities and displacements as they are not in the current DB schema.
-const totalActividadesStr = formatDuration(Math.floor(totalMinutes * 0.05));
-const totalDesplazamientoStr = formatDuration(Math.floor(totalMinutes * 0.1)) + ' (3,80 km)';
+const breakStr = formatDuration(breakMinutes);
+const totalDesplazamientoStr = formatDuration(travelMinutes);
+const totalStr = formatDuration(payableMinutes);
 ---
 
 <WorkerLayout title={headerTitle}>
@@ -137,13 +146,19 @@ const totalDesplazamientoStr = formatDuration(Math.floor(totalMinutes * 0.1)) + 
         <span class="text-[15px] text-zinc-600">Tiempo servicios:</span>
         <span class="text-[15px] font-bold text-[#1E3A8A]">{totalServiciosStr}</span>
       </div>
-      <div class="flex items-center gap-2">
-        <span class="text-[15px] text-zinc-600">Tiempo actividades:</span>
-        <span class="text-[15px] font-bold text-[#1E3A8A]">{totalActividadesStr}</span>
-      </div>
+      {breakMinutes > 0 && (
+        <div class="flex items-center gap-2">
+          <span class="text-[15px] text-zinc-600">Descanso (más de 6h):</span>
+          <span class="text-[15px] font-bold text-emerald-600">+{breakStr}</span>
+        </div>
+      )}
       <div class="flex items-center gap-2">
         <span class="text-[15px] text-zinc-600">Tiempo desplazamiento:</span>
         <span class="text-[15px] font-bold text-[#1E3A8A]">{totalDesplazamientoStr}</span>
+      </div>
+      <div class="flex items-center gap-2 pt-2 mt-2 border-t border-zinc-200">
+        <span class="text-[16px] font-bold text-zinc-800">Total jornada:</span>
+        <span class="text-[16px] font-bold text-[#1E3A8A]">{totalStr}</span>
       </div>
     </div>
 

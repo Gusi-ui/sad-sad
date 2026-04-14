@@ -39,6 +39,14 @@ const assignments = await db()
   .bind(workerId, startYmd, endYmd)
   .all<{ date: string; planned_start: string; planned_end: string }>();
 
+const formatHoursMins = (minutes: number) => {
+  const total = Math.max(0, Math.floor(minutes));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  const sign = minutes < 0 ? '-' : '';
+  return `${sign}${h} h ${String(m).padStart(2, '0')} min`;
+};
+
 const timeToMinutes = (hhmm: string) => {
   const [hRaw, mRaw] = hhmm.split(':');
   const h = Number(hRaw);
@@ -48,17 +56,61 @@ const timeToMinutes = (hhmm: string) => {
   return h * 60 + m;
 };
 
-let totalMinutes = 0;
+const extras = await db()
+  .prepare('SELECT date, travel_minutes FROM worker_day_extras WHERE worker_id = ? AND date >= ? AND date <= ?')
+  .bind(workerId, startYmd, endYmd)
+  .all<{ date: string; travel_minutes: number }>();
+
+const travelByDate = new Map<string, number>(extras.results.map((r) => [r.date, r.travel_minutes ?? 0]));
+
+const contracts = await db()
+  .prepare('SELECT hours_per_week, hours_per_month, start_date, end_date FROM worker_contracts WHERE worker_id = ?')
+  .bind(workerId)
+  .all<{ hours_per_week: number; hours_per_month: number | null; start_date: string; end_date: string | null }>();
+
+const contract = contracts.results.find(c => c.start_date <= endYmd && (!c.end_date || c.end_date >= startYmd));
+const monthlyContractHours = contract?.hours_per_month ?? 0; // Si no hay contrato mensual
+
+const assignmentsByDate = new Map<string, Array<{ planned_start: string; planned_end: string }>>();
+for (const a of assignments.results) {
+  const list = assignmentsByDate.get(a.date) ?? [];
+  list.push(a);
+  assignmentsByDate.set(a.date, list);
+}
+
+let totalServicesMinutes = 0;
+let totalBreakMinutes = 0;
+let totalTravelMinutes = 0;
+
 const countsByDate = new Map<string, number>();
 
-for (const a of assignments.results) {
-  countsByDate.set(a.date, (countsByDate.get(a.date) ?? 0) + 1);
-  const start = timeToMinutes(a.planned_start);
-  const end = timeToMinutes(a.planned_end);
-  if (start !== null && end !== null) {
-    totalMinutes += Math.max(0, end - start);
+for (let day = 1; day <= monthEnd.getUTCDate(); day += 1) {
+  const d = new Date(Date.UTC(safeYear, safeMonth - 1, day));
+  const ymd = toYmd(d);
+  
+  const dayAssignments = assignmentsByDate.get(ymd) ?? [];
+  countsByDate.set(ymd, dayAssignments.length);
+  
+  let dayServicesMinutes = 0;
+  for (const a of dayAssignments) {
+    const start = timeToMinutes(a.planned_start);
+    const end = timeToMinutes(a.planned_end);
+    if (start !== null && end !== null) {
+      dayServicesMinutes += Math.max(0, end - start);
+    }
   }
+  
+  const dayTravelMinutes = travelByDate.get(ymd) ?? 0;
+  const dayBreakMinutes = dayServicesMinutes > 6 * 60 ? 20 : 0;
+  
+  totalServicesMinutes += dayServicesMinutes;
+  totalTravelMinutes += dayTravelMinutes;
+  totalBreakMinutes += dayBreakMinutes;
 }
+
+const totalPayableMinutes = totalServicesMinutes + totalBreakMinutes + totalTravelMinutes;
+const contractMinutes = monthlyContractHours * 60;
+const monthlyDeficitMinutes = totalPayableMinutes - contractMinutes;
 
 const daysInMonth = monthEnd.getUTCDate();
 const firstWeekday = monthStart.getUTCDay(); // 0=Dom..6=Sáb
@@ -87,16 +139,12 @@ const prevYear = safeMonth === 1 ? safeYear - 1 : safeYear;
 const nextMonth = safeMonth === 12 ? 1 : safeMonth + 1;
 const nextYear = safeMonth === 12 ? safeYear + 1 : safeYear;
 
-const formatHoursMins = (minutes: number) => {
-  const total = Math.max(0, Math.floor(minutes));
-  const h = Math.floor(total / 60);
-  const m = total % 60;
-  return `${h} h ${String(m).padStart(2, '0')} min`;
-};
-
-const totalServiciosStr = formatHoursMins(totalMinutes);
-const totalActividadesStr = formatHoursMins(Math.floor(totalMinutes * 0.05));
-const totalDesplazamientoStr = formatHoursMins(Math.floor(totalMinutes * 0.1));
+const totalServiciosStr = formatHoursMins(totalServicesMinutes);
+const totalBreakStr = formatHoursMins(totalBreakMinutes);
+const totalDesplazamientoStr = formatHoursMins(totalTravelMinutes);
+const totalStr = formatHoursMins(totalPayableMinutes);
+const deficitStr = formatHoursMins(Math.abs(monthlyDeficitMinutes));
+const deficitIsPositive = monthlyDeficitMinutes >= 0;
 
 ---
 
@@ -180,14 +228,34 @@ const totalDesplazamientoStr = formatHoursMins(Math.floor(totalMinutes * 0.1));
         <span class="text-sm text-zinc-600">Tiempo servicios:</span>
         <span class="text-sm font-semibold text-[#0284C7]">{totalServiciosStr}</span>
       </div>
-      <div class="flex items-center gap-2">
-        <span class="text-sm text-zinc-600">Tiempo actividades:</span>
-        <span class="text-sm font-semibold text-[#0284C7]">{totalActividadesStr}</span>
-      </div>
+      {totalBreakMinutes > 0 && (
+        <div class="flex items-center gap-2">
+          <span class="text-sm text-zinc-600">Descansos (+6h/día):</span>
+          <span class="text-sm font-semibold text-emerald-600">+{totalBreakStr}</span>
+        </div>
+      )}
       <div class="flex items-center gap-2">
         <span class="text-sm text-zinc-600">Tiempo desplazamiento:</span>
         <span class="text-sm font-semibold text-[#0284C7]">{totalDesplazamientoStr}</span>
       </div>
+      <div class="flex items-center justify-between pt-2 mt-2 border-t border-zinc-200">
+        <span class="text-[15px] font-bold text-zinc-800">Total suma horas:</span>
+        <span class="text-[15px] font-bold text-[#0284C7]">{totalStr}</span>
+      </div>
+      {monthlyContractHours > 0 && (
+        <>
+          <div class="flex items-center justify-between pt-1">
+            <span class="text-[13px] text-zinc-500">Contrato Mensual:</span>
+            <span class="text-[13px] font-bold text-zinc-700">{monthlyContractHours} h</span>
+          </div>
+          <div class="flex items-center justify-between pt-1">
+            <span class="text-[13px] text-zinc-500">Balance Mensual:</span>
+            <span class={`text-[13px] font-bold ${deficitIsPositive ? 'text-emerald-600' : 'text-red-600'}`}>
+              {deficitIsPositive ? '+' : '-'}{deficitStr}
+            </span>
+          </div>
+        </>
+      )}
     </div>
 
     <div class="flex items-start gap-3 rounded-lg border border-zinc-200 bg-white p-3 shadow-sm mt-4">
