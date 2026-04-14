@@ -4,7 +4,7 @@ import { db } from '../../../lib/db';
 import { datesOfIsoWeek, getIsoWeekKey, toYmd } from '../../../lib/dates';
 import { bumpManyWorkerAssignmentsVersions, bumpWorkerAssignmentsVersion } from '../../../lib/realtime';
 import { sendPushToWorkerIds } from '../../../lib/push';
-import { timeToMinutes, autoAssignWeekRange, generateWeek } from '../../../lib/schedule-generator';
+import { timeToMinutes, autoAssignWeekRange, generateWeek, matchesWorkerType, overlaps } from '../../../lib/schedule-generator';
 
 export const prerender = false;
 

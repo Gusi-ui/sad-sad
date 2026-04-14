@@ -11,7 +11,7 @@ export const timeToMinutes = (hhmm: string) => {
   return h * 60 + m;
 };
 
-const overlaps = (aStart: number, aEnd: number, bStart: number, bEnd: number) => aStart < bEnd && bStart < aEnd;
+export const overlaps = (aStart: number, aEnd: number, bStart: number, bEnd: number) => aStart < bEnd && bStart < aEnd;
 
 export const getDayKind = async (database: any, dateYmd: string, weekday0to6: number) => {
   const isWeekend = weekday0to6 === 0 || weekday0to6 === 6;
