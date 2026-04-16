@@ -87,6 +87,55 @@ if (Astro.request.method === 'POST') {
     return Astro.redirect(`/admin/users/${userId}`);
   }
 
+  if (action === 'update_template') {
+    const templateId = String(formData.get('templateId') ?? '').trim();
+    const startTime = String(formData.get('startTime') ?? '').trim();
+    const endTime = String(formData.get('endTime') ?? '').trim();
+    const requiredWorkerType = String(formData.get('requiredWorkerType') ?? 'laborable');
+    const preferredWorkerRaw = String(formData.get('preferredWorker') ?? '').trim();
+    const preferredWorkerId = preferredWorkerRaw === '' ? null : preferredWorkerRaw;
+
+    const timeOk = (value: string) => /^\d{2}:\d{2}$/.test(value);
+    const allowedWorkerTypes = new Set(['laborable', 'festivo', 'ambos']);
+    const safeRequiredWorkerType = allowedWorkerTypes.has(requiredWorkerType) ? requiredWorkerType : 'laborable';
+
+    if (templateId && timeOk(startTime) && timeOk(endTime)) {
+      const today = toYmd(new Date());
+      const affected = await database
+        .prepare(
+          `SELECT DISTINCT assigned_worker_id as id
+           FROM assignments
+           WHERE template_id = ? AND source = 'template' AND status != 'done' AND date >= ? AND assigned_worker_id IS NOT NULL`
+        )
+        .bind(templateId, today)
+        .all<{ id: string }>();
+
+      await database
+        .prepare(
+          `UPDATE service_templates
+           SET start_time = ?, end_time = ?, required_worker_type = ?, preferred_worker_id = ?
+           WHERE id = ? AND service_user_id = ?`
+        )
+        .bind(startTime, endTime, safeRequiredWorkerType, preferredWorkerId, templateId, userId)
+        .run();
+
+      await database
+        .prepare(
+          `UPDATE assignments
+           SET planned_start = ?, planned_end = ?
+           WHERE template_id = ? AND source = 'template' AND status != 'done' AND date >= ?`
+        )
+        .bind(startTime, endTime, templateId, today)
+        .run();
+
+      const ids = affected.results.map((r) => r.id);
+      await bumpManyWorkerAssignmentsVersions(database, ids);
+      queuePush(ids);
+    }
+
+    return Astro.redirect(`/admin/users/${userId}`);
+  }
+
   if (action === 'delete_template') {
     const templateId = String(formData.get('templateId') ?? '').trim();
     if (templateId) {
@@ -256,7 +305,6 @@ if (!user) return Astro.redirect('/admin/users');
 const workers = await db()
   .prepare(`SELECT id, name FROM workers WHERE active = 1 ORDER BY name ASC`)
   .all<{ id: string; name: string }>();
-const workerNameMap = new Map(workers.results.map((w) => [w.id, w.name]));
 
 const templates = await db()
   .prepare(
@@ -474,38 +522,60 @@ const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssign
             </tr>
           </thead>
           <tbody class="divide-y divide-zinc-100">
-            {templates.results.map((t: TemplateRow) => (
-              <tr class="hover:bg-zinc-50 transition-colors">
-                <td class="px-3 py-3">
-                  <span class={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${t.kind === 'laborable' ? 'bg-blue-50 text-blue-700' : 'bg-orange-50 text-orange-700'}`}>
-                    {t.kind === 'laborable' ? 'L-V' : 'Festivo'}
-                  </span>
-                </td>
-                <td class="px-3 py-3 font-medium text-zinc-700">{weekdayLabel(t.weekday)}</td>
-                <td class="px-3 py-3 text-zinc-600">{t.start_time}</td>
-                <td class="px-3 py-3 text-zinc-600">{t.end_time}</td>
-                <td class={`px-3 py-3 capitalize text-xs ${t.kind === 'festivo' && t.required_worker_type === 'laborable' ? 'text-amber-700 font-semibold' : 'text-zinc-600'}`}>
-                  {t.required_worker_type}
-                  {t.kind === 'festivo' && t.required_worker_type === 'laborable' ? ' (revisar)' : ''}
-                </td>
-                <td class="px-3 py-3 text-zinc-600 text-xs">
-                  {t.preferred_worker_id ? workerNameMap.get(t.preferred_worker_id) ?? '—' : '—'}
-                </td>
-                <td class="px-3 py-3 text-right">
-                  <form method="post" class="inline">
-                    <input type="hidden" name="_action" value="delete_template" />
-                    <input type="hidden" name="templateId" value={t.id} />
-                    <button type="submit" class="text-zinc-400 hover:text-red-600 transition-colors p-1" title="Eliminar plantilla">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                    </button>
-                  </form>
-                </td>
-              </tr>
-            ))}
+            {templates.results.map((t: TemplateRow) => {
+              const formId = `update-template-${t.id}`;
+              return (
+                <tr class="hover:bg-zinc-50 transition-colors">
+                  <td class="px-3 py-3">
+                    <span class={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${t.kind === 'laborable' ? 'bg-blue-50 text-blue-700' : 'bg-orange-50 text-orange-700'}`}>
+                      {t.kind === 'laborable' ? 'L-V' : 'Festivo'}
+                    </span>
+                  </td>
+                  <td class="px-3 py-3 font-medium text-zinc-700">{weekdayLabel(t.weekday)}</td>
+                  <td class="px-3 py-3">
+                    <input class="ui-input h-9 w-24 px-2.5 py-1.5 text-xs" name="startTime" value={t.start_time} required form={formId} />
+                  </td>
+                  <td class="px-3 py-3">
+                    <input class="ui-input h-9 w-24 px-2.5 py-1.5 text-xs" name="endTime" value={t.end_time} required form={formId} />
+                  </td>
+                  <td class="px-3 py-3">
+                    <select class="ui-select h-9 py-1.5 text-xs capitalize" name="requiredWorkerType" form={formId}>
+                      <option value="laborable" selected={t.required_worker_type === 'laborable'}>Laborable</option>
+                      <option value="festivo" selected={t.required_worker_type === 'festivo'}>Festivo/Finde</option>
+                      <option value="ambos" selected={t.required_worker_type === 'ambos'}>Ambos</option>
+                    </select>
+                  </td>
+                  <td class="px-3 py-3">
+                    <select class="ui-select h-9 py-1.5 text-xs" name="preferredWorker" form={formId}>
+                      <option value="" selected={!t.preferred_worker_id}>— Ninguna —</option>
+                      {workers.results.map((w) => (
+                        <option value={w.id} selected={t.preferred_worker_id === w.id}>{w.name}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td class="px-3 py-3 text-right">
+                    <div class="inline-flex items-center gap-2">
+                      <form method="post" id={formId} class="inline">
+                        <input type="hidden" name="_action" value="update_template" />
+                        <input type="hidden" name="templateId" value={t.id} />
+                        <button class="ui-btn ui-btn-secondary px-2 py-1 text-xs">Guardar</button>
+                      </form>
+                      <form method="post" class="inline">
+                        <input type="hidden" name="_action" value="delete_template" />
+                        <input type="hidden" name="templateId" value={t.id} />
+                        <button type="submit" class="text-zinc-400 hover:text-red-600 transition-colors p-1" title="Eliminar plantilla">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                        </button>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
             
             {templates.results.length === 0 && (
               <tr>
-                <td colspan="6" class="px-3 py-6 text-center text-sm text-zinc-500 italic">
+                <td colspan="7" class="px-3 py-6 text-center text-sm text-zinc-500 italic">
                   Este usuario no tiene plantillas configuradas.
                 </td>
               </tr>
