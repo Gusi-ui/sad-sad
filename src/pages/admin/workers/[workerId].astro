@@ -649,7 +649,7 @@ const deltaTodayVsTarget = dailyTarget !== null ? todayHours - dailyTarget : nul
       <p class="mt-1 text-xs text-red-700">
         Eliminar a esta trabajadora es una acción irreversible. Sus servicios quedarán libres para reasignación y se limpiarán sus relaciones del sistema.
       </p>
-      <form method="post" class="mt-4" onsubmit="if (!window.confirm('¿Estás completamente seguro de que deseas eliminar esta trabajadora?')) return false">
+      <form method="post" class="mt-4" id="delete-worker-form">
         <input type="hidden" name="_action" value="delete_worker" />
         <button class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700">
           Eliminar trabajadora
@@ -657,4 +657,14 @@ const deltaTodayVsTarget = dailyTarget !== null ? todayHours - dailyTarget : nul
       </form>
     </section>
   </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const form = document.getElementById('delete-worker-form') as HTMLFormElement | null;
+      if (!form) return;
+      form.addEventListener('submit', (e) => {
+        if (!window.confirm('¿Estás completamente seguro de que deseas eliminar esta trabajadora?')) e.preventDefault();
+      });
+    });
+  </script>
 </AppLayout>
