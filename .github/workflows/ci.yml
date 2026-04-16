@@ -3,7 +3,8 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches:
+      - "**"
 
 jobs:
   build:
@@ -21,4 +22,3 @@ jobs:
 
       - name: Check (typecheck + build)
         run: npm run check
-
