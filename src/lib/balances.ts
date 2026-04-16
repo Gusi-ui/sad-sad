@@ -577,6 +577,16 @@ export const computeWorkerBalanceDetail = async (
     .all<{ date: string; travel_minutes: number }>();
   const travelByDate = new Map<string, number>(extrasRows.results.map((r) => [r.date, r.travel_minutes ?? 0]));
 
+  const templateRows = await db
+    .prepare(
+      `SELECT weekday, travel_minutes
+       FROM worker_travel_templates
+       WHERE worker_id = ?`
+    )
+    .bind(workerId)
+    .all<{ weekday: number; travel_minutes: number }>();
+  const travelTemplateByWeekday = new Map<number, number>(templateRows.results.map((r) => [r.weekday, r.travel_minutes ?? 0]));
+
   const usersById = new Map<string, ServiceUserPrefRow>(users.results.map((u) => [u.id, u]));
   const minutesByDate = new Map<string, number>();
   const usersByDate = new Map<string, { id: string; name: string; tag: 'Habitual' | 'Sustitución' }[]>();
@@ -626,7 +636,8 @@ export const computeWorkerBalanceDetail = async (
     usersByDate.set(ymd, dayUsers);
     plannedMinutes += m;
     const breakMinutes = kind === 'laborable' && m >= 6 * 60 ? 20 : 0;
-    const travelMinutes = Math.max(0, Number(travelByDate.get(ymd) ?? 0) || 0);
+    const travelMinutesRaw = travelByDate.has(ymd) ? travelByDate.get(ymd) : travelTemplateByWeekday.get(weekday);
+    const travelMinutes = Math.max(0, Number(travelMinutesRaw ?? 0) || 0);
     const payableMinutes = m + breakMinutes + travelMinutes;
     breakMinutesTotal += breakMinutes;
     travelMinutesTotal += travelMinutes;
