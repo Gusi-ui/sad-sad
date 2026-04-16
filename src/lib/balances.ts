@@ -637,7 +637,7 @@ export const computeWorkerBalanceDetail = async (
     plannedMinutes += m;
     const breakMinutes = kind === 'laborable' && m >= 6 * 60 ? 20 : 0;
     const travelMinutesRaw = travelByDate.has(ymd) ? travelByDate.get(ymd) : travelTemplateByWeekday.get(weekday);
-    const travelMinutes = Math.max(0, Number(travelMinutesRaw ?? 0) || 0);
+    const travelMinutes = m > 0 ? Math.max(0, Number(travelMinutesRaw ?? 0) || 0) : 0;
     const payableMinutes = m + breakMinutes + travelMinutes;
     breakMinutesTotal += breakMinutes;
     travelMinutesTotal += travelMinutes;

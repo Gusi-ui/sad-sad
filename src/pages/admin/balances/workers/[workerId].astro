@@ -73,6 +73,12 @@ if (Astro.request.method === 'POST') {
       { weekday: 0, minutes: parseMinutes('travelSun') }
     ];
     try {
+      const oldRows = await database
+        .prepare(`SELECT weekday, travel_minutes FROM worker_travel_templates WHERE worker_id = ?`)
+        .bind(workerId)
+        .all<{ weekday: number; travel_minutes: number }>();
+      const oldMap = new Map(oldRows.results.map((r) => [r.weekday, r.travel_minutes ?? 0]));
+
       for (const item of payload) {
         await database
           .prepare(
@@ -83,6 +89,24 @@ if (Astro.request.method === 'POST') {
                updated_at = datetime('now')`
           )
           .bind(randomId(), workerId, item.weekday, item.minutes)
+          .run();
+      }
+
+      const startYmd = `${safeYear}-${pad2(safeMonth)}-01`;
+      const endYmd = toYmdUtc(new Date(Date.UTC(safeYear, safeMonth, 0)));
+      for (const item of payload) {
+        const oldMinutes = oldMap.get(item.weekday) ?? 0;
+        if (oldMinutes === item.minutes) continue;
+        await database
+          .prepare(
+            `UPDATE worker_day_extras
+             SET travel_minutes = ?, updated_at = datetime('now')
+             WHERE worker_id = ?
+               AND date >= ? AND date <= ?
+               AND travel_minutes = ?
+               AND CAST(strftime('%w', date) AS INTEGER) = ?`
+          )
+          .bind(item.minutes, workerId, startYmd, endYmd, oldMinutes, item.weekday)
           .run();
       }
     } catch {
