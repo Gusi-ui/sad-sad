@@ -1,0 +1,151 @@
+---
+export type EntitySearchItem = {
+  id: string;
+  name: string;
+  href: string;
+  active?: number | boolean;
+  meta?: string | null;
+  detail?: string | null;
+};
+
+type Props = {
+  id: string;
+  placeholder: string;
+  items: EntitySearchItem[];
+  emptyText: string;
+};
+
+const { id, placeholder, items, emptyText } = Astro.props;
+
+const normalize = (str: string) => str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const itemsWithKey = items.map((it) => ({ ...it, key: normalize(it.name) }));
+---
+
+<section class="ui-card-solid ui-card-body">
+  <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+    <div>
+      <div class="text-sm font-semibold text-zinc-900">Búsqueda</div>
+      <div class="ui-help">Escribe para filtrar. Puedes usar ↑ ↓ y Enter.</div>
+    </div>
+    <div class="ui-pill" id={`${id}-count`}>Mostrando {items.length} / {items.length}</div>
+  </div>
+
+  <div class="relative mt-4">
+    <svg class="pointer-events-none absolute left-3 top-3 h-5 w-5 text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+    <input id={`${id}-input`} class="ui-input pl-10" placeholder={placeholder} autocomplete="off" />
+  </div>
+
+  <div class="ui-list" id={`${id}-list`} role="listbox" aria-label="Resultados">
+    {itemsWithKey.map((it, i) => (
+      <a
+        id={`${id}-opt-${i}`}
+        href={it.href}
+        role="option"
+        tabindex="-1"
+        class="ui-list-item"
+        aria-selected="false"
+        data-key={it.key}
+        data-entity-row="1"
+      >
+        <div class="min-w-0 flex items-start gap-3">
+          <span
+            class={`mt-2 h-2 w-2 shrink-0 rounded-full ${it.active ? 'bg-emerald-500' : 'bg-zinc-300'}`}
+            title={it.active ? 'Activo' : 'Inactivo'}
+          />
+          <div class="min-w-0">
+            <div class="truncate font-semibold text-zinc-900">{it.name}</div>
+            {(it.meta || it.detail) && (
+              <div class="mt-0.5 truncate text-xs text-zinc-600">
+                {it.meta}
+                {it.meta && it.detail ? ' · ' : ''}
+                {it.detail}
+              </div>
+            )}
+          </div>
+        </div>
+        <svg class="h-5 w-5 shrink-0 text-zinc-300" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+      </a>
+    ))}
+
+    <div id={`${id}-empty`} class="hidden px-4 py-6 text-center text-sm text-zinc-500">
+      {emptyText}
+    </div>
+  </div>
+</section>
+
+<script is:inline define:vars={{ id, total: items.length }}>
+  document.addEventListener('DOMContentLoaded', () => {
+    const rootId = String(id);
+    const input = document.getElementById(`${rootId}-input`);
+    const list = document.getElementById(`${rootId}-list`);
+    const empty = document.getElementById(`${rootId}-empty`);
+    const count = document.getElementById(`${rootId}-count`);
+    const rows = Array.from(list?.querySelectorAll('[data-entity-row="1"]') ?? []);
+
+    if (!input || !list || !empty || !count) return;
+
+    const normalize = (str) => str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+    let activeIndex = -1;
+
+    const visibleRows = () => rows.filter((r) => !r.classList.contains('hidden'));
+
+    const setActive = (nextIndex) => {
+      const visible = visibleRows();
+      activeIndex = Math.max(-1, Math.min(nextIndex, visible.length - 1));
+      rows.forEach((r) => r.setAttribute('aria-selected', 'false'));
+      if (activeIndex >= 0) {
+        const el = visible[activeIndex];
+        el.setAttribute('aria-selected', 'true');
+        el.scrollIntoView({ block: 'nearest' });
+      }
+    };
+
+    const updateCount = () => {
+      const v = visibleRows().length;
+      count.textContent = `Mostrando ${v} / ${total}`;
+    };
+
+    const applyFilter = () => {
+      const q = normalize(String(input.value ?? '').trim());
+      let matches = 0;
+      for (const row of rows) {
+        const key = String(row.getAttribute('data-key') ?? '');
+        const show = q === '' || key.includes(q);
+        row.classList.toggle('hidden', !show);
+        if (show) matches += 1;
+      }
+      empty.classList.toggle('hidden', matches !== 0);
+      updateCount();
+      setActive(matches ? 0 : -1);
+    };
+
+    input.addEventListener('input', applyFilter);
+    input.addEventListener('keydown', (e) => {
+      const visible = visibleRows();
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setActive(activeIndex + 1);
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActive(activeIndex - 1);
+      }
+      if (e.key === 'Enter') {
+        const el = visible[activeIndex];
+        if (el && el.getAttribute('href')) {
+          e.preventDefault();
+          window.location.assign(el.getAttribute('href'));
+        }
+      }
+      if (e.key === 'Escape') {
+        input.value = '';
+        applyFilter();
+        input.blur();
+      }
+    });
+
+    applyFilter();
+  });
+</script>
+

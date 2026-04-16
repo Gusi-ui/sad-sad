@@ -1,1 +1,174 @@
 @import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    --font-display: "Fraunces", ui-serif, Georgia, serif;
+  }
+
+  html {
+    font-family: var(--font-sans);
+    text-rendering: geometricPrecision;
+  }
+
+  body {
+    background-color: #f8fafc;
+    background-image:
+      radial-gradient(60rem 24rem at 20% -10%, rgba(56, 189, 248, 0.18), transparent 55%),
+      radial-gradient(50rem 22rem at 90% 0%, rgba(99, 102, 241, 0.16), transparent 55%),
+      radial-gradient(rgba(15, 23, 42, 0.08) 1px, transparent 1px);
+    background-size: auto, auto, 18px 18px;
+    background-position: 0 0, 0 0, 0 0;
+  }
+
+  ::selection {
+    @apply bg-sky-200 text-sky-950;
+  }
+
+  a {
+    @apply underline-offset-4;
+  }
+}
+
+@layer components {
+  .ui-body {
+    @apply min-h-dvh text-zinc-950 antialiased flex flex-col overflow-x-hidden;
+  }
+
+  .ui-body-worker {
+    @apply bg-zinc-100;
+    background-image:
+      radial-gradient(40rem 20rem at 15% 0%, rgba(56, 189, 248, 0.16), transparent 55%),
+      radial-gradient(40rem 18rem at 90% -5%, rgba(99, 102, 241, 0.14), transparent 55%);
+  }
+
+  .ui-container {
+    @apply mx-auto w-full max-w-6xl px-4;
+  }
+
+  .ui-page {
+    @apply py-6 flex-1;
+  }
+
+  .ui-header {
+    @apply flex flex-col gap-3 md:flex-row md:items-end md:justify-between border-b border-zinc-200/70 pb-4;
+  }
+
+  .ui-title {
+    font-family: var(--font-display);
+    @apply text-2xl md:text-3xl font-bold tracking-tight text-zinc-950;
+  }
+
+  .ui-subtitle {
+    @apply mt-1 text-sm text-zinc-600;
+  }
+
+  .ui-breadcrumbs {
+    @apply flex flex-wrap items-center gap-2 text-sm text-zinc-500;
+  }
+
+  .ui-card {
+    @apply rounded-2xl border border-zinc-200/80 bg-white/80 shadow-sm backdrop-blur;
+  }
+
+  .ui-card-solid {
+    @apply rounded-2xl border border-zinc-200 bg-white shadow-sm;
+  }
+
+  .ui-card-body {
+    @apply p-6;
+  }
+
+  .ui-card-body-sm {
+    @apply p-4;
+  }
+
+  .ui-btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors;
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950/20;
+    @apply disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .ui-btn-primary {
+    @apply bg-zinc-950 text-white hover:bg-zinc-900;
+  }
+
+  .ui-btn-secondary {
+    @apply border border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-50;
+  }
+
+  .ui-btn-soft {
+    @apply bg-zinc-100 text-zinc-900 hover:bg-zinc-200;
+  }
+
+  .ui-btn-danger {
+    @apply bg-rose-600 text-white hover:bg-rose-700;
+  }
+
+  .ui-pill {
+    @apply inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700;
+  }
+
+  .ui-input {
+    @apply w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm shadow-sm;
+    @apply placeholder:text-zinc-400;
+    @apply focus:border-zinc-950 focus:outline-none focus:ring-2 focus:ring-zinc-950/10;
+  }
+
+  .ui-select {
+    @apply w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm shadow-sm;
+    @apply focus:border-zinc-950 focus:outline-none focus:ring-2 focus:ring-zinc-950/10;
+  }
+
+  .ui-textarea {
+    @apply w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm shadow-sm;
+    @apply placeholder:text-zinc-400;
+    @apply focus:border-zinc-950 focus:outline-none focus:ring-2 focus:ring-zinc-950/10;
+  }
+
+  .ui-label {
+    @apply text-sm font-semibold text-zinc-700;
+  }
+
+  .ui-help {
+    @apply mt-1 text-xs text-zinc-500;
+  }
+
+  .ui-list {
+    @apply mt-3 overflow-hidden rounded-2xl border border-zinc-200 bg-white;
+  }
+
+  .ui-list-item {
+    @apply flex items-center justify-between gap-3 px-4 py-3 text-sm transition-colors;
+    @apply hover:bg-zinc-50;
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950/20;
+  }
+
+  .ui-list-item[aria-selected="true"] {
+    @apply bg-zinc-100;
+  }
+
+  .ui-kpi {
+    @apply rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm;
+  }
+
+  .ui-table {
+    @apply w-full text-left text-sm;
+  }
+
+  .ui-table thead {
+    @apply bg-zinc-50 text-xs uppercase text-zinc-500 border-b border-zinc-200;
+  }
+
+  .ui-table th {
+    @apply px-4 py-3 font-semibold;
+  }
+
+  .ui-table td {
+    @apply px-4 py-3;
+  }
+
+  .ui-badge {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold;
+  }
+}

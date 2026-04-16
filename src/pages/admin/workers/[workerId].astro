@@ -299,35 +299,40 @@ const deltaTodayVsTarget = dailyTarget !== null ? todayHours - dailyTarget : nul
 <AppLayout title={`${worker.name} | Admin`}>
   <div class="flex items-start justify-between gap-4">
     <div>
-      <a class="text-sm font-medium text-zinc-700 underline decoration-zinc-300" href="/admin/workers">← Volver a trabajadoras</a>
-      <h1 class="mt-2 text-2xl font-semibold tracking-tight">{worker.name}</h1>
-      <p class="mt-1 text-sm text-zinc-600">ID: {worker.id}</p>
+      <div class="ui-breadcrumbs">
+        <a class="hover:text-zinc-900 transition-colors" href="/admin/workers">Trabajadoras</a>
+        <span class="text-zinc-300">/</span>
+        <span class="text-zinc-800 truncate">{worker.name}</span>
+        <a class="ui-pill ml-2 no-underline hover:bg-zinc-50" href="/admin/workers">Volver</a>
+      </div>
+      <h1 class="ui-title mt-2 text-3xl">{worker.name}</h1>
+      <p class="ui-subtitle">ID: {worker.id}</p>
     </div>
   </div>
 
   <div class="mt-6 grid gap-6 lg:grid-cols-2">
-    <section class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm lg:col-span-2">
+    <section class="ui-card-solid ui-card-body-sm lg:col-span-2">
       <h2 class="text-sm font-semibold">Datos</h2>
       <form method="post" class="mt-4 grid gap-4 sm:grid-cols-2">
         <input type="hidden" name="_action" value="update_worker" />
         <label class="block">
           <span class="text-sm font-medium text-zinc-700">Nombre</span>
-          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="name" value={worker.name} required />
+          <input class="ui-input mt-1" name="name" value={worker.name} required />
         </label>
 
         <label class="block">
           <span class="text-sm font-medium text-zinc-700">Teléfono</span>
-          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="phone" value={worker.phone || ''} type="tel" />
+          <input class="ui-input mt-1" name="phone" value={worker.phone || ''} type="tel" />
         </label>
 
         <label class="block">
           <span class="text-sm font-medium text-zinc-700">Dirección</span>
-          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="address" value={worker.address || ''} />
+          <input class="ui-input mt-1" name="address" value={worker.address || ''} />
         </label>
 
         <label class="block">
           <span class="text-sm font-medium text-zinc-700">Tipo</span>
-          <select class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="workerType">
+          <select class="ui-select mt-1" name="workerType">
             <option value="laborable" selected={worker.worker_type === 'laborable'}>Laborable</option>
             <option value="festivo" selected={worker.worker_type === 'festivo'}>Festivo/Finde</option>
             <option value="ambos" selected={worker.worker_type === 'ambos'}>Ambos</option>
@@ -339,12 +344,12 @@ const deltaTodayVsTarget = dailyTarget !== null ? todayHours - dailyTarget : nul
             <input class="h-4 w-4" type="checkbox" name="active" checked={worker.active === 1} />
             <span class="text-sm font-medium text-zinc-700">Trabajadora activa</span>
           </label>
-          <button class="rounded-lg bg-[#0284C7] hover:bg-sky-700 transition-colors px-6 py-2 text-sm font-bold text-white shadow-sm">Guardar cambios</button>
+          <button class="ui-btn ui-btn-primary px-6 py-2">Guardar cambios</button>
         </div>
       </form>
     </section>
 
-    <section class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm lg:col-span-2">
+    <section class="ui-card-solid ui-card-body-sm lg:col-span-2">
       <h2 class="text-sm font-semibold">Acceso App (trabajadora)</h2>
 
       {accessError ? (
@@ -371,7 +376,7 @@ const deltaTodayVsTarget = dailyTarget !== null ? todayHours - dailyTarget : nul
         <label class="block sm:col-span-1">
           <span class="text-sm font-medium text-zinc-700">Email de acceso</span>
           <input
-            class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+            class="ui-input mt-1"
             name="email"
             type="email"
             required
@@ -385,7 +390,7 @@ const deltaTodayVsTarget = dailyTarget !== null ? todayHours - dailyTarget : nul
             {workerAccount ? 'Nueva contraseña (opcional)' : 'Contraseña inicial'}
           </span>
           <input
-            class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+            class="ui-input mt-1"
             name="password"
             type="password"
             placeholder={workerAccount ? 'Dejar vacío para mantener' : 'Mínimo 8 caracteres'}
@@ -397,34 +402,34 @@ const deltaTodayVsTarget = dailyTarget !== null ? todayHours - dailyTarget : nul
             <input class="h-4 w-4" type="checkbox" name="accountActive" checked={(workerAccount?.active ?? 1) === 1} />
             <span class="text-sm font-medium text-zinc-700">Cuenta activa</span>
           </label>
-          <button class="rounded-lg bg-zinc-900 px-6 py-2 text-sm font-bold text-white">
+          <button class="ui-btn ui-btn-primary px-6 py-2">
             Guardar acceso
           </button>
         </div>
       </form>
     </section>
 
-    <section class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm order-3 lg:col-span-2">
+    <section class="ui-card-solid ui-card-body-sm order-3 lg:col-span-2">
       <h2 class="text-sm font-semibold">Contrato (semana y mes)</h2>
       <form method="post" class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <input type="hidden" name="_action" value="add_contract" />
         <label class="block sm:col-span-1">
           <span class="text-sm font-medium text-zinc-700">Horas/semana</span>
-          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="hoursPerWeek" inputmode="decimal" required />
+          <input class="ui-input mt-1" name="hoursPerWeek" inputmode="decimal" required />
         </label>
         <label class="block sm:col-span-1">
           <span class="text-sm font-medium text-zinc-700">Horas/mes (opcional)</span>
-          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="hoursPerMonth" inputmode="decimal" placeholder="Para cuadre mensual" />
+          <input class="ui-input mt-1" name="hoursPerMonth" inputmode="decimal" placeholder="Para cuadre mensual" />
         </label>
         <label class="block sm:col-span-1">
           <span class="text-sm font-medium text-zinc-700">Inicio</span>
-          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" type="date" name="startDate" value={today} required />
+          <input class="ui-input mt-1" type="date" name="startDate" value={today} required />
         </label>
         <label class="block sm:col-span-1">
           <span class="text-sm font-medium text-zinc-700">Fin (opcional)</span>
-          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" type="date" name="endDate" />
+          <input class="ui-input mt-1" type="date" name="endDate" />
         </label>
-        <button class="sm:col-span-2 lg:col-span-4 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">
+        <button class="ui-btn ui-btn-primary sm:col-span-2 lg:col-span-4">
           Añadir contrato
         </button>
       </form>
@@ -500,7 +505,7 @@ const deltaTodayVsTarget = dailyTarget !== null ? todayHours - dailyTarget : nul
       </div>
     </section>
 
-    <section class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm order-2 lg:col-span-2">
+    <section class="ui-card-solid ui-card-body-sm order-2 lg:col-span-2">
       <h2 class="text-sm font-semibold">Cuadre trabajadora (mes natural)</h2>
       <p class="mt-1 text-xs text-zinc-600">
         Suma horas en <code class="rounded bg-zinc-100 px-1">assignments</code> (no cancelados), cuenta <strong>días con al menos un servicio</strong> y calcula una
@@ -511,13 +516,13 @@ const deltaTodayVsTarget = dailyTarget !== null ? todayHours - dailyTarget : nul
       <form method="get" class="mt-4 flex flex-wrap items-end gap-3">
         <label class="block">
           <span class="text-sm font-medium text-zinc-700">Año</span>
-          <input class="mt-1 w-28 rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="year" type="number" value={safeWYear} />
+          <input class="ui-input mt-1 w-28" name="year" type="number" value={safeWYear} />
         </label>
         <label class="block">
           <span class="text-sm font-medium text-zinc-700">Mes</span>
-          <input class="mt-1 w-24 rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="month" type="number" min="1" max="12" value={safeWMonth} />
+          <input class="ui-input mt-1 w-24" name="month" type="number" min="1" max="12" value={safeWMonth} />
         </label>
-        <button class="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">Calcular</button>
+        <button class="ui-btn ui-btn-primary px-4 py-2">Calcular</button>
       </form>
 
       <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -644,14 +649,14 @@ const deltaTodayVsTarget = dailyTarget !== null ? todayHours - dailyTarget : nul
       </div>
     </section>
 
-    <section class="rounded-2xl border border-red-200 bg-red-50 p-5 shadow-sm order-4 lg:col-span-2">
+    <section class="rounded-2xl border border-rose-200 bg-rose-50 p-5 shadow-sm order-4 lg:col-span-2">
       <h2 class="text-sm font-semibold text-red-800">Zona de peligro</h2>
       <p class="mt-1 text-xs text-red-700">
         Eliminar a esta trabajadora es una acción irreversible. Sus servicios quedarán libres para reasignación y se limpiarán sus relaciones del sistema.
       </p>
       <form method="post" class="mt-4" id="delete-worker-form">
         <input type="hidden" name="_action" value="delete_worker" />
-        <button class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700">
+        <button class="ui-btn ui-btn-danger px-4 py-2">
           Eliminar trabajadora
         </button>
       </form>

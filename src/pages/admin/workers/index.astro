@@ -1,5 +1,6 @@
 ---
 import AppLayout from '../../../layouts/AppLayout.astro';
+import EntitySearchList from '../../../components/EntitySearchList.astro';
 import { db } from '../../../lib/db';
 
 const workers = await db()
@@ -13,132 +14,41 @@ const workers = await db()
   `
   )
   .all<{ id: string; name: string; active: number; worker_type: string; phone: string | null; address: string | null; email: string | null }>();
+
+const items = workers.results.map((w) => ({
+  id: w.id,
+  name: w.name,
+  href: `/admin/workers/${w.id}`,
+  active: w.active,
+  meta: w.phone || 'Sin teléfono',
+  detail: w.worker_type
+}));
 ---
 
 <AppLayout title="Trabajadoras | Admin">
-  <div class="flex items-center justify-between border-b border-zinc-200 pb-4">
+  <div class="ui-header">
     <div>
-      <h1 class="text-2xl font-bold tracking-tight text-zinc-900">Gestión de Trabajadoras</h1>
-      <p class="mt-1 text-sm text-zinc-600">
-        Busca una trabajadora para ver o editar sus datos. 
-        <button id="show-all-btn" class="ml-2 inline-flex items-center rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-semibold text-sky-800 hover:bg-sky-200 transition-colors cursor-pointer" title="Ver todas">
-          Total: {workers.results.length}
-        </button>
-      </p>
+      <div class="ui-breadcrumbs">
+        <a class="hover:text-zinc-900 transition-colors" href="/admin">Panel de control</a>
+        <span class="text-zinc-300">/</span>
+        <span class="text-zinc-800">Trabajadoras</span>
+        <span class="ui-badge bg-sky-100 text-sky-900">Total {workers.results.length}</span>
+      </div>
+      <h1 class="ui-title">Trabajadoras</h1>
+      <p class="ui-subtitle">La lista se muestra completa y se filtra al escribir.</p>
     </div>
-    <div class="flex items-center gap-3">
-      <a href="/admin/workers/new" class="rounded-lg bg-[#0284C7] hover:bg-sky-700 transition-colors px-4 py-2 text-sm font-bold text-white shadow-sm flex items-center gap-2">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-        Nueva Trabajadora
-      </a>
-    </div>
+    <a href="/admin/workers/new" class="ui-btn ui-btn-primary">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+      Nueva trabajadora
+    </a>
   </div>
 
-  <div class="mt-8 max-w-2xl mx-auto">
-    <div class="relative" id="worker-search-container">
-      <div class="relative">
-        <svg class="absolute left-4 top-3.5 h-5 w-5 text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-        <input 
-          type="text" 
-          id="worker-search-input"
-          class="w-full rounded-2xl border border-zinc-300 bg-white py-3 pl-11 pr-4 text-base shadow-sm focus:border-[#0284C7] focus:outline-none focus:ring-2 focus:ring-[#0284C7]/20 transition-all"
-          placeholder="Buscar trabajadora por nombre..."
-          autocomplete="off"
-        />
-      </div>
-
-      <div id="worker-search-results" class="absolute z-10 mt-2 w-full rounded-xl border border-zinc-200 bg-white py-2 shadow-lg hidden max-h-[400px] overflow-y-auto">
-        <!-- Resultados inyectados por JS -->
-      </div>
-      
-      <div id="worker-empty-state" class="mt-12 text-center text-zinc-500">
-        <svg class="mx-auto mb-3 h-12 w-12 text-zinc-300" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-        <p>Empieza a escribir para buscar una trabajadora.</p>
-        <p class="text-sm mt-1">Hay {workers.results.length} trabajadoras registradas.</p>
-      </div>
-    </div>
+  <div class="mt-6 max-w-3xl">
+    <EntitySearchList
+      id="workers"
+      placeholder="Buscar por nombre…"
+      items={items}
+      emptyText="No se encontraron trabajadoras."
+    />
   </div>
-
-  <script is:inline define:vars={{ workersData: workers.results }}>
-    document.addEventListener('DOMContentLoaded', () => {
-      const input = document.getElementById('worker-search-input');
-      const resultsContainer = document.getElementById('worker-search-results');
-      const emptyState = document.getElementById('worker-empty-state');
-
-      if (!input || !resultsContainer || !emptyState) return;
-
-      const normalize = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-
-      const renderResults = (query) => {
-        const normalizedQuery = normalize(query.trim());
-        
-        const filtered = normalizedQuery 
-          ? workersData.filter(w => normalize(w.name).includes(normalizedQuery))
-          : workersData;
-          
-        if (!normalizedQuery && !input.dataset.showAll) {
-          resultsContainer.classList.add('hidden');
-          emptyState.classList.remove('hidden');
-          return;
-        }
-
-        resultsContainer.innerHTML = '';
-        emptyState.classList.add('hidden');
-
-        if (filtered.length === 0) {
-          resultsContainer.innerHTML = '<div class="px-4 py-3 text-sm text-zinc-500">No se encontraron trabajadoras.</div>';
-          resultsContainer.classList.remove('hidden');
-          return;
-        }
-
-        filtered.forEach(worker => {
-          const a = document.createElement('a');
-          a.href = `/admin/workers/${worker.id}`;
-          a.className = 'flex items-center justify-between px-4 py-3 hover:bg-zinc-50 transition-colors border-b border-zinc-100 last:border-0';
-          
-          const statusBadge = worker.active 
-            ? `<span class="h-2 w-2 rounded-full bg-emerald-500" title="Activa"></span>`
-            : `<span class="h-2 w-2 rounded-full bg-zinc-400" title="Inactiva"></span>`;
-
-          a.innerHTML = `
-            <div class="flex items-center gap-3">
-              ${statusBadge}
-              <div>
-                <div class="font-bold text-zinc-900">${worker.name}</div>
-                <div class="text-xs text-zinc-500">${worker.phone || 'Sin teléfono'} • ${worker.worker_type}</div>
-              </div>
-            </div>
-            <svg class="h-5 w-5 text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-          `;
-          resultsContainer.appendChild(a);
-        });
-
-        resultsContainer.classList.remove('hidden');
-      };
-
-      input.addEventListener('input', (e) => {
-        delete input.dataset.showAll;
-        renderResults(e.target.value);
-      });
-      
-      const showAllBtn = document.getElementById('show-all-btn');
-      if (showAllBtn) {
-        showAllBtn.addEventListener('click', () => {
-          input.dataset.showAll = 'true';
-          input.value = '';
-          input.focus();
-          renderResults('');
-        });
-      }
-      
-      // Mostrar todos si se hace focus y está vacío (opcional, pero ayuda a descubrir)
-      input.addEventListener('focus', (e) => {
-        if (!e.target.value && workersData.length > 0) {
-          // Si queremos mostrar la lista entera al hacer focus, descomentar:
-          // renderResults(' '); // Un espacio para forzar render
-        }
-      });
-    });
-  </script>
 </AppLayout>
-

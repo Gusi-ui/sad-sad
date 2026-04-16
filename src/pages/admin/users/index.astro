@@ -1,5 +1,6 @@
 ---
 import AppLayout from '../../../layouts/AppLayout.astro';
+import EntitySearchList from '../../../components/EntitySearchList.astro';
 import { db } from '../../../lib/db';
 
 const users = await db()
@@ -16,129 +17,41 @@ const users = await db()
     phone: string | null;
     created_at: string;
   }>();
+
+const items = users.results.map((u) => ({
+  id: u.id,
+  name: u.name,
+  href: `/admin/users/${u.id}`,
+  active: u.active,
+  meta: u.phone || 'Sin teléfono',
+  detail: u.address || 'Sin dirección'
+}));
 ---
 
 <AppLayout title="Usuarios | Admin">
-  <div class="flex items-center justify-between border-b border-zinc-200 pb-4">
+  <div class="ui-header">
     <div>
-      <h1 class="text-2xl font-bold tracking-tight text-zinc-900">Gestión de Usuarios/as</h1>
-      <p class="mt-1 text-sm text-zinc-600">
-        Busca un usuario/a para ver o editar sus datos.
-        <button id="show-all-btn" class="ml-2 inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-200 transition-colors cursor-pointer" title="Ver todos">
-          Total: {users.results.length}
-        </button>
-      </p>
+      <div class="ui-breadcrumbs">
+        <a class="hover:text-zinc-900 transition-colors" href="/admin">Panel de control</a>
+        <span class="text-zinc-300">/</span>
+        <span class="text-zinc-800">Usuarios/as</span>
+        <span class="ui-badge bg-emerald-100 text-emerald-900">Total {users.results.length}</span>
+      </div>
+      <h1 class="ui-title">Usuarios/as</h1>
+      <p class="ui-subtitle">La lista se muestra completa y se filtra al escribir.</p>
     </div>
-    <div class="flex items-center gap-3">
-      <a href="/admin/users/new" class="rounded-lg bg-emerald-600 hover:bg-emerald-700 transition-colors px-4 py-2 text-sm font-bold text-white shadow-sm flex items-center gap-2">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-        Nuevo/a Usuario/a
-      </a>
-    </div>
+    <a href="/admin/users/new" class="ui-btn ui-btn-primary">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+      Nuevo/a usuario/a
+    </a>
   </div>
 
-  <div class="mt-8 max-w-2xl mx-auto">
-    <div class="relative" id="user-search-container">
-      <div class="relative">
-        <svg class="absolute left-4 top-3.5 h-5 w-5 text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-        <input 
-          type="text" 
-          id="user-search-input"
-          class="w-full rounded-2xl border border-zinc-300 bg-white py-3 pl-11 pr-4 text-base shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20 transition-all"
-          placeholder="Buscar usuario/a por nombre..."
-          autocomplete="off"
-        />
-      </div>
-
-      <div id="user-search-results" class="absolute z-10 mt-2 w-full rounded-xl border border-zinc-200 bg-white py-2 shadow-lg hidden max-h-[400px] overflow-y-auto">
-        <!-- Resultados inyectados por JS -->
-      </div>
-      
-      <div id="user-empty-state" class="mt-12 text-center text-zinc-500">
-        <svg class="mx-auto mb-3 h-12 w-12 text-zinc-300" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-        <p>Empieza a escribir para buscar un usuario/a.</p>
-        <p class="text-sm mt-1">Hay {users.results.length} usuarios/as registrados.</p>
-      </div>
-    </div>
+  <div class="mt-6 max-w-3xl">
+    <EntitySearchList
+      id="users"
+      placeholder="Buscar por nombre…"
+      items={items}
+      emptyText="No se encontraron usuarios/as."
+    />
   </div>
-
-  <script is:inline define:vars={{ usersData: users.results }}>
-    document.addEventListener('DOMContentLoaded', () => {
-      const input = document.getElementById('user-search-input');
-      const resultsContainer = document.getElementById('user-search-results');
-      const emptyState = document.getElementById('user-empty-state');
-
-      if (!input || !resultsContainer || !emptyState) return;
-
-      const normalize = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-
-      const renderResults = (query) => {
-        const normalizedQuery = normalize(query.trim());
-        
-        const filtered = normalizedQuery 
-          ? usersData.filter(u => normalize(u.name).includes(normalizedQuery))
-          : usersData;
-          
-        if (!normalizedQuery && !input.dataset.showAll) {
-          resultsContainer.classList.add('hidden');
-          emptyState.classList.remove('hidden');
-          return;
-        }
-
-        resultsContainer.innerHTML = '';
-        emptyState.classList.add('hidden');
-
-        if (filtered.length === 0) {
-          resultsContainer.innerHTML = '<div class="px-4 py-3 text-sm text-zinc-500">No se encontraron usuarios/as.</div>';
-          resultsContainer.classList.remove('hidden');
-          return;
-        }
-
-        filtered.forEach(user => {
-          const a = document.createElement('a');
-          a.href = `/admin/users/${user.id}`;
-          a.className = 'flex items-center justify-between px-4 py-3 hover:bg-zinc-50 transition-colors border-b border-zinc-100 last:border-0';
-          
-          const statusBadge = user.active 
-            ? `<span class="h-2 w-2 rounded-full bg-emerald-500" title="Activo"></span>`
-            : `<span class="h-2 w-2 rounded-full bg-zinc-400" title="Inactivo"></span>`;
-
-          a.innerHTML = `
-            <div class="flex items-center gap-3">
-              ${statusBadge}
-              <div>
-                <div class="font-bold text-zinc-900 uppercase">${user.name}</div>
-                <div class="text-xs text-zinc-500">${user.phone || 'Sin teléfono'} • ${user.address || 'Sin dirección'}</div>
-              </div>
-            </div>
-            <svg class="h-5 w-5 text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-          `;
-          resultsContainer.appendChild(a);
-        });
-
-        resultsContainer.classList.remove('hidden');
-      };
-
-      input.addEventListener('input', (e) => {
-        delete input.dataset.showAll;
-        renderResults(e.target.value);
-      });
-      
-      const showAllBtn = document.getElementById('show-all-btn');
-      if (showAllBtn) {
-        showAllBtn.addEventListener('click', () => {
-          input.dataset.showAll = 'true';
-          input.value = '';
-          input.focus();
-          renderResults('');
-        });
-      }
-      
-      input.addEventListener('focus', (e) => {
-        if (!e.target.value && usersData.length > 0) {
-          // renderResults('');
-        }
-      });
-    });
-  </script>
 </AppLayout>

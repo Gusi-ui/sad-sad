@@ -12,19 +12,19 @@ const safeMonth = Number.isFinite(parsedMonth) && parsedMonth >= 1 && parsedMont
 const monthLabel = `${safeYear}-${String(safeMonth).padStart(2, '0')}`;
 ---
 <AppLayout title="Balances | Admin">
-  <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+  <div class="ui-header">
     <div>
       <div class="text-sm font-medium text-zinc-500">Balances</div>
-      <h1 class="mt-1 text-2xl font-bold tracking-tight text-zinc-900">Resumen mensual</h1>
-      <p class="mt-1 text-sm text-zinc-600">Cuotas, contratos y comparativas por usuario y trabajadora.</p>
+      <h1 class="ui-title mt-1">Resumen mensual</h1>
+      <p class="ui-subtitle">Cuotas, contratos y comparativas por usuario y trabajadora.</p>
     </div>
 
     <form class="flex items-end gap-2" method="get">
       <label class="block">
         <span class="text-xs font-semibold uppercase tracking-wider text-zinc-500">Mes</span>
-        <input class="mt-1 h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm shadow-sm focus:border-[#0284C7] focus:outline-none focus:ring-1 focus:ring-[#0284C7]" type="month" name="ym" value={monthLabel} />
+        <input class="ui-input mt-1 h-10" type="month" name="ym" value={monthLabel} />
       </label>
-      <button class="h-10 rounded-xl bg-zinc-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-zinc-800 transition-colors">Ver</button>
+      <button class="ui-btn ui-btn-primary h-10 px-4">Ver</button>
     </form>
   </div>
 

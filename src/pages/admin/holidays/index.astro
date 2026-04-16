@@ -3,7 +3,6 @@ import AppLayout from '../../../layouts/AppLayout.astro';
 import { db } from '../../../lib/db';
 import { randomId } from '../../../lib/crypto';
 
-const account = Astro.locals.account;
 const currentYear = new Date().getFullYear();
 const year = Number(Astro.url.searchParams.get('year') ?? currentYear);
 const safeYear = Number.isFinite(year) ? year : currentYear;
@@ -30,75 +29,117 @@ const holidays = await db()
   .all<{ id: string; date: string; name: string; scope: string }>();
 
 type HolidayRow = (typeof holidays.results)[number];
+
+const scopeLabel = (scope: string) => {
+  if (scope === 'national') return 'Nacional';
+  if (scope === 'catalonia') return 'Cataluña';
+  if (scope === 'mataro') return 'Mataró';
+  return scope;
+};
+
+const scopeTone = (scope: string) => {
+  if (scope === 'national') return 'bg-zinc-900 text-white';
+  if (scope === 'catalonia') return 'bg-indigo-100 text-indigo-900';
+  if (scope === 'mataro') return 'bg-sky-100 text-sky-900';
+  return 'bg-zinc-100 text-zinc-800';
+};
 ---
 
 <AppLayout title="Festivos | Admin">
-  <div class="flex items-center justify-between">
+  <div class="ui-header">
     <div>
-      <h1 class="text-2xl font-semibold tracking-tight">Festivos</h1>
-      <p class="mt-1 text-sm text-zinc-600">Sesión: {account?.email}</p>
+      <h1 class="ui-title">Festivos</h1>
+      <p class="ui-subtitle">Gestión de festivos por año.</p>
     </div>
-    <a class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium" href="/admin">
-      Volver
-    </a>
+    <a class="ui-btn ui-btn-secondary" href="/admin">Volver</a>
   </div>
 
   <div class="mt-6 grid gap-6 lg:grid-cols-3">
-    <section class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm lg:col-span-1">
+    <section class="ui-card-solid ui-card-body-sm lg:col-span-1">
       <h2 class="text-sm font-semibold">Año</h2>
       <form method="get" class="mt-3 flex items-center gap-2">
         <input
-          class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+          class="ui-input w-full"
           name="year"
           inputmode="numeric"
           value={String(safeYear)}
         />
-        <button class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium">Ver</button>
+        <button class="ui-btn ui-btn-secondary px-3 py-2">Ver</button>
       </form>
 
       <h2 class="mt-6 text-sm font-semibold">Añadir festivo</h2>
       <form method="post" class="mt-4 space-y-4">
         <label class="block">
           <span class="text-sm font-medium text-zinc-700">Fecha</span>
-          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" type="date" name="date" required />
+          <input class="ui-input mt-1" type="date" name="date" required />
         </label>
         <label class="block">
           <span class="text-sm font-medium text-zinc-700">Nombre</span>
-          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="name" required />
+          <input class="ui-input mt-1" name="name" required />
         </label>
         <label class="block">
           <span class="text-sm font-medium text-zinc-700">Ámbito</span>
-          <select class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="scope">
+          <select class="ui-select mt-1" name="scope">
             <option value="national">Nacional</option>
             <option value="catalonia">Cataluña</option>
             <option value="mataro" selected>Mataró</option>
           </select>
         </label>
-        <button class="inline-flex w-full items-center justify-center rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">
+        <button class="ui-btn ui-btn-primary w-full">
           Guardar
         </button>
       </form>
     </section>
 
-    <section class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm lg:col-span-2">
-      <h2 class="text-sm font-semibold">Listado {safeYear}</h2>
-      <div class="mt-4 overflow-x-auto">
-        <table class="w-full min-w-[720px] text-left text-sm">
-          <thead class="text-xs uppercase text-zinc-500">
+    <section class="ui-card-solid ui-card-body-sm lg:col-span-2">
+      <div class="flex items-center justify-between gap-3">
+        <h2 class="text-sm font-semibold">Listado {safeYear}</h2>
+        <span class="ui-pill">Total {holidays.results.length}</span>
+      </div>
+
+      <div class="mt-4 space-y-2 md:hidden">
+        {holidays.results.map((h: HolidayRow) => (
+          <div class="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="text-xs font-semibold uppercase tracking-wider text-zinc-500">{h.date}</div>
+                <div class="mt-1 text-sm font-semibold text-zinc-900 break-words">{h.name}</div>
+              </div>
+              <span class={`ui-badge shrink-0 ${scopeTone(h.scope)}`}>{scopeLabel(h.scope)}</span>
+            </div>
+          </div>
+        ))}
+        {holidays.results.length === 0 && (
+          <div class="rounded-2xl border border-zinc-200 bg-white p-6 text-center text-sm text-zinc-600">
+            No hay festivos para este año.
+          </div>
+        )}
+      </div>
+
+      <div class="mt-4 hidden md:block">
+        <table class="ui-table w-full table-fixed">
+          <thead>
             <tr>
-              <th class="px-3 py-2">Fecha</th>
-              <th class="px-3 py-2">Nombre</th>
-              <th class="px-3 py-2">Ámbito</th>
+              <th class="w-32">Fecha</th>
+              <th>Nombre</th>
+              <th class="w-40">Ámbito</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-zinc-100">
             {holidays.results.map((h: HolidayRow) => (
               <tr>
-                <td class="px-3 py-2">{h.date}</td>
-                <td class="px-3 py-2">{h.name}</td>
-                <td class="px-3 py-2">{h.scope}</td>
+                <td class="whitespace-nowrap text-zinc-700 font-medium">{h.date}</td>
+                <td class="break-words text-zinc-900">{h.name}</td>
+                <td>
+                  <span class={`ui-badge ${scopeTone(h.scope)}`}>{scopeLabel(h.scope)}</span>
+                </td>
               </tr>
             ))}
+            {holidays.results.length === 0 && (
+              <tr>
+                <td colspan="3" class="py-10 text-center text-sm text-zinc-600">No hay festivos para este año.</td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

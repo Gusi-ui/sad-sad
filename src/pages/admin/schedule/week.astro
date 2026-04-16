@@ -313,17 +313,17 @@ const formatMinutes = (minutes: number) => {
 
     <div class="flex flex-wrap items-center gap-2">
       <form method="get" class="flex items-center">
-        <input class="w-40 rounded-l-lg border border-zinc-300 border-r-0 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all" type="week" name="week" value={weekKey} />
-        <button class="rounded-r-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium hover:bg-zinc-50 transition-colors shadow-sm">Ir</button>
+        <input class="ui-input w-40 rounded-l-xl border-r-0" type="week" name="week" value={weekKey} />
+        <button class="ui-btn ui-btn-secondary rounded-r-xl rounded-l-none px-3 py-2 shadow-sm">Ir</button>
       </form>
       
-      <a href="/admin/schedule/month" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium hover:bg-zinc-50 transition-colors shadow-sm" title="Vista mensual">
+      <a href="/admin/schedule/month" class="ui-btn ui-btn-secondary px-3 py-2 shadow-sm" title="Vista mensual">
         Mes
       </a>
       
       <form method="post" onsubmit="return window.confirm('Esto recalcula la semana desde plantillas y borra servicios de origen plantilla no finalizados. ¿Continuar?')">
         <input type="hidden" name="_action" value="regenerate_week" />
-        <button class="flex items-center gap-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 transition-colors px-3 py-2 text-sm font-bold text-white shadow-sm" title="Regenerar la semana entera desde plantillas">
+        <button class="ui-btn ui-btn-primary px-3 py-2 shadow-sm" title="Regenerar la semana entera desde plantillas">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><polyline points="3 3 3 8 8 8"></polyline></svg>
           Regenerar
         </button>
@@ -331,7 +331,7 @@ const formatMinutes = (minutes: number) => {
       
       <form method="post">
         <input type="hidden" name="_action" value="auto_assign" />
-        <button class="flex items-center gap-1 rounded-lg bg-[#0284C7] hover:bg-sky-700 transition-colors px-3 py-2 text-sm font-bold text-white shadow-sm" title="Asignar automáticamente a las trabajadoras">
+        <button class="ui-btn ui-btn-primary px-3 py-2 shadow-sm" title="Asignar automáticamente a las trabajadoras">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><polyline points="16 11 18 13 22 9"></polyline></svg>
           Asignar
         </button>
@@ -342,11 +342,11 @@ const formatMinutes = (minutes: number) => {
   <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl">
     <div class="relative">
       <svg class="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-      <input type="text" id="filter-user" class="w-full rounded-lg border border-zinc-300 bg-white py-2 pl-9 pr-4 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all" placeholder="Filtrar por Usuario/a..." autocomplete="off" />
+      <input type="text" id="filter-user" class="ui-input py-2 pl-9 pr-4" placeholder="Filtrar por Usuario/a..." autocomplete="off" />
     </div>
     <div class="relative">
       <svg class="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-      <input type="text" id="filter-worker" class="w-full rounded-lg border border-zinc-300 bg-white py-2 pl-9 pr-4 text-sm shadow-sm focus:border-[#0284C7] focus:outline-none focus:ring-1 focus:ring-[#0284C7] transition-all" placeholder="Filtrar por Trabajadora asignada..." autocomplete="off" />
+      <input type="text" id="filter-worker" class="ui-input py-2 pl-9 pr-4" placeholder="Filtrar por Trabajadora asignada..." autocomplete="off" />
     </div>
     <label class="md:col-span-2 inline-flex items-center gap-2 text-sm text-zinc-700">
       <input id="filter-unassigned" type="checkbox" class="h-4 w-4 rounded border-zinc-300 text-amber-600 focus:ring-amber-500" />
