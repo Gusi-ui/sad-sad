@@ -135,6 +135,38 @@ if (Astro.request.method === 'POST') {
     }
     return Astro.redirect(`/admin/workers/${workerId}`);
   }
+
+  if (action === 'update_contract') {
+    const contractId = String(formData.get('contractId') ?? '').trim();
+    const hoursPerWeekRaw = String(formData.get('hoursPerWeek') ?? '').trim();
+    const hoursPerWeek = Number(hoursPerWeekRaw);
+    const hoursPerMonthRaw = String(formData.get('hoursPerMonth') ?? '').trim();
+    const hoursPerMonthParsed = hoursPerMonthRaw === '' ? null : Number(hoursPerMonthRaw);
+    const hoursPerMonth =
+      hoursPerMonthParsed === null || !Number.isFinite(hoursPerMonthParsed) ? null : hoursPerMonthParsed;
+    const startDate = String(formData.get('startDate') ?? '').trim();
+    const endDate = String(formData.get('endDate') ?? '').trim();
+
+    if (contractId && Number.isFinite(hoursPerWeek) && hoursPerWeek > 0 && startDate) {
+      await database
+        .prepare(
+          `UPDATE worker_contracts
+           SET hours_per_week = ?, hours_per_month = ?, start_date = ?, end_date = ?
+           WHERE id = ? AND worker_id = ?`
+        )
+        .bind(hoursPerWeek, hoursPerMonth, startDate, endDate || null, contractId, workerId)
+        .run();
+    }
+    return Astro.redirect(`/admin/workers/${workerId}`);
+  }
+
+  if (action === 'delete_contract') {
+    const contractId = String(formData.get('contractId') ?? '').trim();
+    if (contractId) {
+      await database.prepare(`DELETE FROM worker_contracts WHERE id = ? AND worker_id = ?`).bind(contractId, workerId).run();
+    }
+    return Astro.redirect(`/admin/workers/${workerId}`);
+  }
 }
 
 const worker = await db()
@@ -159,6 +191,10 @@ const contracts = await db()
 type ContractRow = (typeof contracts.results)[number];
 
 const today = toYmd(new Date());
+
+const editContractIdRaw = String(Astro.url.searchParams.get('editContract') ?? '').trim();
+const editContractId = editContractIdRaw === '' ? null : editContractIdRaw;
+const contractToEdit = editContractId ? contracts.results.find((c) => c.id === editContractId) ?? null : null;
 
 const now = new Date();
 const wYear = Number(Astro.url.searchParams.get('year') ?? now.getFullYear());
@@ -196,7 +232,7 @@ const monthAssignedRows = await db()
   .all<{ date: string; planned_start: string; planned_end: string }>();
 
 const holidayRows = await db()
-  .prepare(`SELECT date FROM holidays WHERE date >= ? AND date <= ? AND scope IN ('national','catalonia','barcelona','mataro')`)
+  .prepare(`SELECT date FROM holidays WHERE date >= ? AND date <= ? AND scope IN ('national','catalonia','mataro')`)
   .bind(monthStartYmd, monthEndYmd)
   .all<{ date: string }>();
 const holidaySet = new Set(holidayRows.results.map((r) => r.date));
@@ -393,6 +429,47 @@ const deltaTodayVsTarget = dailyTarget !== null ? todayHours - dailyTarget : nul
         </button>
       </form>
 
+      {contractToEdit && (
+        <form method="post" class="mt-4 grid gap-4 rounded-xl border border-indigo-200 bg-indigo-50 p-4 sm:grid-cols-2 lg:grid-cols-5">
+          <input type="hidden" name="_action" value="update_contract" />
+          <input type="hidden" name="contractId" value={contractToEdit.id} />
+          <div class="sm:col-span-2 lg:col-span-5 text-sm font-semibold text-indigo-900">
+            Editar contrato ({contractToEdit.start_date} → {contractToEdit.end_date ?? '—'})
+          </div>
+          <label class="block">
+            <span class="text-sm font-medium text-zinc-700">Horas/semana</span>
+            <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="hoursPerWeek" inputmode="decimal" value={String(contractToEdit.hours_per_week)} required />
+          </label>
+          <label class="block">
+            <span class="text-sm font-medium text-zinc-700">Horas/mes (opcional)</span>
+            <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" name="hoursPerMonth" inputmode="decimal" value={contractToEdit.hours_per_month !== null ? String(contractToEdit.hours_per_month) : ''} />
+          </label>
+          <label class="block">
+            <span class="text-sm font-medium text-zinc-700">Inicio</span>
+            <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" type="date" name="startDate" value={contractToEdit.start_date} required />
+          </label>
+          <label class="block">
+            <span class="text-sm font-medium text-zinc-700">Fin (opcional)</span>
+            <input class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm" type="date" name="endDate" value={contractToEdit.end_date ?? ''} />
+          </label>
+          <div class="flex items-end gap-2">
+            <button class="w-full rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-800">
+              Guardar cambios
+            </button>
+          </div>
+        </form>
+      )}
+
+      {contractToEdit && (
+        <form method="post" class="mt-2 flex justify-end" onsubmit="return window.confirm('¿Eliminar este contrato?')">
+          <input type="hidden" name="_action" value="delete_contract" />
+          <input type="hidden" name="contractId" value={contractToEdit.id} />
+          <button class="rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100">
+            Eliminar contrato
+          </button>
+        </form>
+      )}
+
       <div class="mt-6 overflow-x-auto">
         <table class="w-full min-w-[520px] text-left text-sm">
           <thead class="text-xs uppercase text-zinc-500">
@@ -401,6 +478,7 @@ const deltaTodayVsTarget = dailyTarget !== null ? todayHours - dailyTarget : nul
               <th class="px-3 py-2">Horas/mes</th>
               <th class="px-3 py-2">Inicio</th>
               <th class="px-3 py-2">Fin</th>
+              <th class="px-3 py-2"></th>
             </tr>
           </thead>
           <tbody class="divide-y divide-zinc-100">
@@ -410,6 +488,11 @@ const deltaTodayVsTarget = dailyTarget !== null ? todayHours - dailyTarget : nul
                 <td class="px-3 py-2">{c.hours_per_month ?? '—'}</td>
                 <td class="px-3 py-2">{c.start_date}</td>
                 <td class="px-3 py-2">{c.end_date ?? '—'}</td>
+                <td class="px-3 py-2 text-right">
+                  <a class="text-indigo-700 hover:underline" href={`/admin/workers/${workerId}?editContract=${c.id}`}>
+                    Editar
+                  </a>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -566,7 +649,7 @@ const deltaTodayVsTarget = dailyTarget !== null ? todayHours - dailyTarget : nul
       <p class="mt-1 text-xs text-red-700">
         Eliminar a esta trabajadora es una acción irreversible. Sus servicios quedarán libres para reasignación y se limpiarán sus relaciones del sistema.
       </p>
-      <form method="post" class="mt-4" onsubmit="return confirm('¿Estás completamente seguro de que deseas eliminar esta trabajadora?');">
+      <form method="post" class="mt-4" onsubmit="if (!window.confirm('¿Estás completamente seguro de que deseas eliminar esta trabajadora?')) return false">
         <input type="hidden" name="_action" value="delete_worker" />
         <button class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700">
           Eliminar trabajadora

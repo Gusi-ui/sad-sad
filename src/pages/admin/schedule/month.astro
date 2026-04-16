@@ -136,7 +136,7 @@ const workerMonthTargetExplicit = selectedWorkerContract?.hours_per_month ?? nul
 const workerWeekTarget = selectedWorkerContract?.hours_per_week ?? null;
 const daysInMonth = monthEnd.getUTCDate();
 const avgWeekHoursRealWorker = daysInMonth > 0 ? (realWorkerHours * 7) / daysInMonth : 0;
-const workerMonthTargetFromWeek = workerWeekTarget !== null ? (workerWeekTarget * daysInMonth) / 7 : null;
+const workerMonthTargetFromWeek = workerWeekTarget !== null ? (workerWeekTarget * 52.14) / 12 : null;
 const workerMonthTarget = workerMonthTargetExplicit ?? workerMonthTargetFromWeek;
 const workerDeltaMonth = workerMonthTarget !== null ? realWorkerHours - workerMonthTarget : null;
 const workerDeltaWeek = workerWeekTarget !== null ? avgWeekHoursRealWorker - workerWeekTarget : null;
@@ -171,7 +171,7 @@ const assignments = await database
   }>();
 
 const holidayRows = await database
-  .prepare(`SELECT date FROM holidays WHERE date >= ? AND date <= ? AND scope IN ('national','catalonia','barcelona','mataro')`)
+  .prepare(`SELECT date FROM holidays WHERE date >= ? AND date <= ? AND scope IN ('national','catalonia','mataro')`)
   .bind(startYmd, endYmd)
   .all<{ date: string }>();
 const holidaySet = new Set(holidayRows.results.map((r) => r.date));

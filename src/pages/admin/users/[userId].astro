@@ -168,7 +168,7 @@ if (Astro.request.method === 'POST') {
     const startYmd = toYmd(monthStart);
     const endYmd = toYmd(monthEnd);
     const holidayRows = await database
-      .prepare(`SELECT date FROM holidays WHERE date >= ? AND date <= ? AND scope IN ('national','catalonia','barcelona','mataro')`)
+      .prepare(`SELECT date FROM holidays WHERE date >= ? AND date <= ? AND scope IN ('national','catalonia','mataro')`)
       .bind(startYmd, endYmd)
       .all<{ date: string }>();
     const holidaySet = new Set(holidayRows.results.map((r) => r.date));
@@ -361,7 +361,7 @@ const deltaAssignments = quota !== null && quota !== undefined ? hoursFromAssign
           </button>
         </form>
         {((orphanAssignments?.c ?? 0) > 0) && (
-          <form method="post" onsubmit="return confirm('Se limpiarán servicios antiguos sin plantilla de este usuario. ¿Continuar?');">
+          <form method="post" onsubmit="return window.confirm('Se limpiarán servicios antiguos sin plantilla de este usuario. ¿Continuar?')">
             <input type="hidden" name="_action" value="clean_orphan_assignments" />
             <button class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100">
               Limpiar {orphanAssignments?.c ?? 0} servicios huérfanos

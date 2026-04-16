@@ -14,7 +14,7 @@ export type D1DatabaseLike = {
   };
 };
 
-const holidayScopes = ['national', 'catalonia', 'barcelona', 'mataro'] as const;
+const holidayScopes = ['national', 'catalonia', 'mataro'] as const;
 
 export const timeToMinutes = (hhmm: string) => {
   const [hRaw, mRaw] = hhmm.split(':');

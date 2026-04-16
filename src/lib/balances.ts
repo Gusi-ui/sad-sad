@@ -85,6 +85,8 @@ export type WorkerBalanceDetail = {
   endYmd: string;
   worker: { id: string; name: string };
   contractHoursPerWeek: number | null;
+  contractHoursPerMonthExplicit: number | null;
+  contractHoursPerMonthFromWeek: number | null;
   contractHoursPerMonth: number | null;
   plannedMinutes: number;
   breakMinutes: number;
@@ -623,8 +625,7 @@ export const computeWorkerBalanceDetail = async (
     minutesByDate.set(ymd, m);
     usersByDate.set(ymd, dayUsers);
     plannedMinutes += m;
-    // Descanso: si la trabajadora hace MÁS de 6 horas de servicios en ese día, se suman 20 min.
-    const breakMinutes = m > 6 * 60 ? 20 : 0;
+    const breakMinutes = kind === 'laborable' && m >= 6 * 60 ? 20 : 0;
     const travelMinutes = Math.max(0, Number(travelByDate.get(ymd) ?? 0) || 0);
     const payableMinutes = m + breakMinutes + travelMinutes;
     breakMinutesTotal += breakMinutes;
@@ -666,7 +667,9 @@ export const computeWorkerBalanceDetail = async (
   const avgWeeklyPlannedHours = isoWeeksInMonth > 0 ? hours(payableMinutes) / isoWeeksInMonth : 0;
 
   const contractHoursPerWeek = contract?.hours_per_week ?? null;
-  const contractHoursPerMonth = contract?.hours_per_month ?? null;
+  const contractHoursPerMonthExplicit = contract?.hours_per_month ?? null;
+  const contractHoursPerMonthFromWeek = contractHoursPerWeek === null ? null : (contractHoursPerWeek * 52.14) / 12;
+  const contractHoursPerMonth = contractHoursPerMonthExplicit ?? contractHoursPerMonthFromWeek;
   const deltaHoursVsMonth = contractHoursPerMonth === null ? null : hours(payableMinutes) - contractHoursPerMonth;
 
   return {
@@ -676,6 +679,8 @@ export const computeWorkerBalanceDetail = async (
     endYmd,
     worker,
     contractHoursPerWeek,
+    contractHoursPerMonthExplicit,
+    contractHoursPerMonthFromWeek,
     contractHoursPerMonth,
     plannedMinutes,
     breakMinutes: breakMinutesTotal,

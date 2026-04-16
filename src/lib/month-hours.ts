@@ -4,7 +4,7 @@ type D1Like = {
   };
 };
 
-export const HOLIDAY_SCOPES = ['national', 'catalonia', 'barcelona', 'mataro'] as const;
+export const HOLIDAY_SCOPES = ['national', 'catalonia', 'mataro'] as const;
 
 export type DayKind = 'laborable' | 'festivo' | 'fin_semana';
 
@@ -223,9 +223,12 @@ export const computeWorkerMonthAssignedMinutes = async (db: D1Like, workerId: st
 export const minutesToHours = (minutes: number) => minutes / 60;
 
 export const formatHours = (hours: number) => {
-  const h = Math.floor(hours);
-  const m = Math.round((hours - h) * 60);
-  return `${h}h ${String(m).padStart(2, '0')}m`;
+  const sign = hours < 0 ? '-' : '';
+  const abs = Math.abs(hours);
+  const totalMinutes = Math.round(abs * 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return `${sign}${h}h ${String(m).padStart(2, '0')}m`;
 };
 
 export type ContractLike = {
