@@ -1,6 +1,7 @@
 ---
 import WorkerLayout from '../../layouts/WorkerLayout.astro';
 import { db } from '../../lib/db';
+import { toYmd } from '../../lib/dates';
 
 export const prerender = false;
 
@@ -8,16 +9,27 @@ const account = Astro.locals.account;
 const workerId = account?.workerId ?? null;
 if (!workerId) return Astro.redirect('/unauthorized');
 const database = db();
+const todayYmd = toYmd(new Date());
 
 const users = await database
   .prepare(
     `SELECT DISTINCT u.id, u.name, u.address, u.phone, u.notes
      FROM service_users u
-     JOIN service_templates t ON t.service_user_id = u.id
-     WHERE u.active = 1 AND t.preferred_worker_id = ?
+     WHERE u.active = 1 AND (
+       EXISTS (
+         SELECT 1 FROM service_templates t
+         WHERE t.service_user_id = u.id AND t.preferred_worker_id = ?
+       ) OR EXISTS (
+         SELECT 1 FROM assignments a
+         WHERE a.service_user_id = u.id
+           AND a.assigned_worker_id = ?
+           AND a.status != 'done'
+           AND a.date >= ?
+       )
+     )
      ORDER BY u.name COLLATE NOCASE`
   )
-  .bind(workerId)
+  .bind(workerId, workerId, todayYmd)
   .all<{ id: string; name: string; address: string | null; phone: string | null; notes: string | null }>();
 ---
 
