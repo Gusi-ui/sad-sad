@@ -4,6 +4,7 @@ import { db } from '../../../lib/db';
 import { datesOfIsoWeek, getIsoWeekKey, toYmd } from '../../../lib/dates';
 import { bumpManyWorkerAssignmentsVersions, bumpWorkerAssignmentsVersion } from '../../../lib/realtime';
 import { sendPushToWorkerIds } from '../../../lib/push';
+import { randomId } from '../../../lib/crypto';
 import { timeToMinutes, autoAssignWeekRange, generateWeek, matchesWorkerType, overlaps } from '../../../lib/schedule-generator';
 
 export const prerender = false;
@@ -21,6 +22,7 @@ const weekDates = datesOfIsoWeek(weekKey) ?? datesOfIsoWeek(currentWeek);
 if (!weekDates) return Astro.redirect(`/admin`);
 
 const database = db();
+const travelError = String(Astro.url.searchParams.get('travelError') ?? '').trim();
 
 if (Astro.request.method === 'POST') {
   const formData = await Astro.request.formData();
@@ -37,6 +39,50 @@ if (Astro.request.method === 'POST') {
       }) as any
     );
   };
+
+  if (action === 'set_travel') {
+    const workerId = String(formData.get('workerId') ?? '').trim();
+    const date = String(formData.get('date') ?? '').trim();
+    const travelRaw = String(formData.get('travelMinutes') ?? '').trim();
+    const travelParsed = travelRaw === '' ? 0 : Number(travelRaw);
+    const travel = Number.isFinite(travelParsed) && travelParsed >= 0 ? Math.floor(travelParsed) : 0;
+
+    if (workerId && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      try {
+        await database
+          .prepare(
+            `INSERT INTO worker_day_extras (id, worker_id, date, travel_minutes, source)
+             VALUES (?, ?, ?, ?, 'manual')
+             ON CONFLICT(worker_id, date) DO UPDATE SET
+               travel_minutes = excluded.travel_minutes,
+               source = 'manual',
+               updated_at = datetime('now')`
+          )
+          .bind(randomId(), workerId, date, travel)
+          .run();
+      } catch {
+        try {
+          await database
+            .prepare(
+              `INSERT INTO worker_day_extras (id, worker_id, date, travel_minutes)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(worker_id, date) DO UPDATE SET
+                 travel_minutes = excluded.travel_minutes,
+                 updated_at = datetime('now')`
+            )
+            .bind(randomId(), workerId, date, travel)
+            .run();
+        } catch {
+          return Astro.redirect(`/admin/schedule/week?week=${weekKey}&travelError=missing_table`);
+        }
+      }
+
+      await bumpWorkerAssignmentsVersion(database, workerId);
+      queuePush([workerId]);
+    }
+
+    return Astro.redirect(`/admin/schedule/week?week=${weekKey}`);
+  }
 
   if (action === 'assign') {
     const assignmentId = String(formData.get('assignmentId') ?? '').trim();
@@ -126,6 +172,42 @@ type AssignmentRow = (typeof assignments.results)[number];
 
 const startYmd = toYmd(new Date(weekDates[0]));
 const endYmd = toYmd(new Date(weekDates[6]));
+
+let travelExtras: { results: Array<{ worker_id: string; date: string; travel_minutes: number }> } = { results: [] };
+let travelExtrasAvailable = true;
+try {
+  travelExtras = await database
+    .prepare(`SELECT worker_id, date, travel_minutes FROM worker_day_extras WHERE date >= ? AND date <= ?`)
+    .bind(startYmd, endYmd)
+    .all<{ worker_id: string; date: string; travel_minutes: number }>();
+} catch {
+  travelExtrasAvailable = false;
+}
+
+const travelByWorkerDate = new Map<string, number>(
+  travelExtras.results.map((r) => [`${r.worker_id}|${r.date}`, r.travel_minutes ?? 0])
+);
+
+const assignedWorkerMapByDate = new Map<string, Map<string, string>>();
+for (const a of assignments.results) {
+  if (!a.assigned_worker_id) continue;
+  const name = a.worker_name ?? '';
+  if (!name) continue;
+  const map = assignedWorkerMapByDate.get(a.date) ?? new Map<string, string>();
+  map.set(a.assigned_worker_id, name);
+  assignedWorkerMapByDate.set(a.date, map);
+}
+
+const travelSumByDate = new Map<string, number>();
+let travelWeekTotal = 0;
+for (const [date, workerMap] of assignedWorkerMapByDate.entries()) {
+  let sum = 0;
+  for (const workerId of workerMap.keys()) {
+    sum += travelByWorkerDate.get(`${workerId}|${date}`) ?? 0;
+  }
+  travelSumByDate.set(date, sum);
+  travelWeekTotal += sum;
+}
 
 const holidayRows = await database
   .prepare(`SELECT date FROM holidays WHERE date >= ? AND date <= ? AND scope IN ('national','catalonia','mataro')`)
@@ -287,6 +369,14 @@ const formatMinutes = (minutes: number) => {
   const m = total % 60;
   return `${h}h ${String(m).padStart(2, '0')}m`;
 };
+
+const formatTravelMinutes = (minutes: number) => {
+  const total = Math.max(0, Math.floor(minutes));
+  if (total < 60) return `${total} min`;
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${h}h ${String(m).padStart(2, '0')}m`;
+};
 ---
 
 <AppLayout title="Agenda semanal | Admin">
@@ -310,6 +400,12 @@ const formatMinutes = (minutes: number) => {
         </a>
       </div>
     </div>
+    
+    {(travelError === 'missing_table' || !travelExtrasAvailable) && (
+      <div class="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        La tabla de desplazamientos no está disponible en esta base de datos. Aplica la migración 0010 (y 0012 si procede) y recarga.
+      </div>
+    )}
 
     <div class="flex flex-wrap items-center gap-2">
       <form method="get" class="flex items-center">
@@ -492,22 +588,62 @@ const formatMinutes = (minutes: number) => {
     <h2 class="text-sm font-semibold">Vista por día</h2>
     <p class="mt-1 text-xs text-zinc-600">Lectura rápida para revisar por fecha qué usuario tiene servicio, horario y trabajadora asignada.</p>
     <div class="mt-4 space-y-3">
-      {groupedDays.map((day) => (
-        <details class="rounded-xl border border-zinc-200 bg-zinc-50/40 day-group" data-date={day.date} open>
-          <summary class="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-zinc-800">
-            {formatDateEs(day.date)} · {day.items.length} servicios
-          </summary>
-          <div class="border-t border-zinc-200 bg-white">
-            {day.items.map((a) => (
-              <div class="day-item grid gap-2 border-b border-zinc-100 px-4 py-3 text-sm last:border-b-0 md:grid-cols-[1fr_auto_auto]" data-assignment-id={a.id} data-user={a.user_name} data-worker={a.worker_name ?? ''} data-assigned={a.assigned_worker_id ? '1' : '0'}>
-                <div class="font-semibold text-emerald-700 uppercase">{a.user_name}</div>
-                <div class="font-medium text-[#4B79A1]">{a.planned_start} - {a.planned_end}</div>
-                <div class="text-zinc-600 day-worker-name">{a.worker_name ?? 'Sin asignar'}</div>
-              </div>
-            ))}
-          </div>
-        </details>
-      ))}
+      {groupedDays.map((day) => {
+        const workersMap = assignedWorkerMapByDate.get(day.date) ?? new Map();
+        const dayWorkers = Array.from(workersMap.entries())
+          .map(([id, name]) => ({ id, name }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        const dayTravelTotal = travelSumByDate.get(day.date) ?? 0;
+
+        return (
+          <details class="rounded-xl border border-zinc-200 bg-zinc-50/40 day-group" data-date={day.date} open>
+            <summary class="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-zinc-800">
+              {formatDateEs(day.date)} · {day.items.length} servicios · Desplazamientos: {travelExtrasAvailable ? formatTravelMinutes(dayTravelTotal) : '—'}
+            </summary>
+            <div class="border-t border-zinc-200 bg-white">
+              {day.items.map((a: AssignmentRow) => (
+                <div class="day-item grid gap-2 border-b border-zinc-100 px-4 py-3 text-sm last:border-b-0 md:grid-cols-[1fr_auto_auto]" data-assignment-id={a.id} data-user={a.user_name} data-worker={a.worker_name ?? ''} data-assigned={a.assigned_worker_id ? '1' : '0'}>
+                  <div class="font-semibold text-emerald-700 uppercase">{a.user_name}</div>
+                  <div class="font-medium text-[#4B79A1]">{a.planned_start} - {a.planned_end}</div>
+                  <div class="text-zinc-600 day-worker-name">{a.worker_name ?? 'Sin asignar'}</div>
+                </div>
+              ))}
+
+              {travelExtrasAvailable && dayWorkers.length > 0 && (
+                <div class="border-t border-zinc-100 bg-zinc-50/40 px-4 py-3">
+                  <div class="text-xs font-semibold uppercase tracking-wider text-zinc-600">Desplazamientos por trabajadora (min)</div>
+                  <div class="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {dayWorkers.map((w: { id: string; name: string }) => (
+                      <form method="post" class="flex items-center justify-between gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2">
+                        <input type="hidden" name="_action" value="set_travel" />
+                        <input type="hidden" name="workerId" value={w.id} />
+                        <input type="hidden" name="date" value={day.date} />
+                        <div class="min-w-0 flex-1 text-xs font-semibold text-zinc-800 truncate">{w.name}</div>
+                        <input
+                          class="w-20 rounded-lg border border-zinc-300 px-2 py-1 text-sm"
+                          name="travelMinutes"
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={travelByWorkerDate.get(`${w.id}|${day.date}`) ?? 0}
+                        />
+                        <button class="rounded-lg bg-zinc-900 px-2 py-1 text-xs font-semibold text-white">OK</button>
+                      </form>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </details>
+        );
+      })}
+
+      {travelExtrasAvailable && groupedDays.length > 0 && (
+        <div class="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm flex items-center justify-between">
+          <span class="font-semibold text-indigo-900">Total desplazamientos semana</span>
+          <span class="font-bold text-indigo-900">{formatTravelMinutes(travelWeekTotal)}</span>
+        </div>
+      )}
       {groupedDays.length === 0 && (
         <div class="rounded-lg border border-zinc-200 px-4 py-4 text-sm text-zinc-500 italic">
           No hay servicios para mostrar por día en esta semana.

@@ -157,45 +157,55 @@ const nextWeekKey = `${nextYearNum}-W${String(nextWeekNum).padStart(2, '0')}`;
     </div>
 
     <div class="space-y-4">
-      {days.map((day) => (
-        <div class="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden">
-          <a href={`/w/day/${day.ymd}`} class="block bg-zinc-50 px-4 py-2 border-b border-zinc-200 flex justify-between items-center hover:bg-zinc-100 transition-colors">
-            <h3 class="font-bold text-[#1E3A8A] capitalize">{day.label}</h3>
-            <div class="flex items-center gap-2">
-              <span class="text-xs font-medium bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">{day.assignments.length}</span>
-              <svg class="text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
-            </div>
-          </a>
-          
-          <div class="divide-y divide-zinc-100">
-            {day.assignments.map((a) => {
-              const start = timeToMinutes(a.planned_start) ?? 0;
-              const end = timeToMinutes(a.planned_end) ?? 0;
-              const durationMin = Math.max(0, end - start);
-              const durationStr = formatDuration(durationMin);
+      {days.map((day) => {
+        const dayTravelMinutes = travelByDate.get(day.ymd) ?? 0;
+        const dayTravelStr = formatDuration(dayTravelMinutes);
 
-              return (
-                <div class="p-3 text-sm">
-                  <div class="flex justify-between items-start mb-1">
-                    <span class="font-bold text-[#4B79A1]">{a.planned_start} - {a.planned_end}</span>
-                    <span class="text-xs text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded">{durationStr}</span>
-                  </div>
-                  <div class="flex gap-2 text-zinc-700">
-                    <span class="text-zinc-500">Usr:</span>
-                    <span class="font-medium uppercase">{a.user_name}</span>
-                  </div>
-                </div>
-              );
-            })}
-            
-            {day.assignments.length === 0 && (
-              <div class="p-4 text-center text-sm text-zinc-400 italic">
-                Sin servicios planificados
+        return (
+          <div class="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden">
+            <a href={`/w/day/${day.ymd}`} class="block bg-zinc-50 px-4 py-2 border-b border-zinc-200 flex justify-between items-center hover:bg-zinc-100 transition-colors">
+              <h3 class="font-bold text-[#1E3A8A] capitalize">{day.label}</h3>
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-medium bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">{day.assignments.length}</span>
+                <svg class="text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
               </div>
-            )}
+            </a>
+            
+            <div class="divide-y divide-zinc-100">
+              {day.assignments.map((a) => {
+                const start = timeToMinutes(a.planned_start) ?? 0;
+                const end = timeToMinutes(a.planned_end) ?? 0;
+                const durationMin = Math.max(0, end - start);
+                const durationStr = formatDuration(durationMin);
+
+                return (
+                  <div class="p-3 text-sm">
+                    <div class="flex justify-between items-start mb-1">
+                      <span class="font-bold text-[#4B79A1]">{a.planned_start} - {a.planned_end}</span>
+                      <span class="text-xs text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded">{durationStr}</span>
+                    </div>
+                    <div class="flex gap-2 text-zinc-700">
+                      <span class="text-zinc-500">Usr:</span>
+                      <span class="font-medium uppercase">{a.user_name}</span>
+                    </div>
+                  </div>
+                );
+              })}
+              
+              {day.assignments.length === 0 && (
+                <div class="p-4 text-center text-sm text-zinc-400 italic">
+                  Sin servicios planificados
+                </div>
+              )}
+            </div>
+
+            <div class="px-4 py-2 border-t border-zinc-200 bg-zinc-50 flex items-center justify-between text-sm">
+              <span class="text-zinc-600">Desplazamientos del día:</span>
+              <span class="font-bold text-[#1E3A8A]">{dayTravelStr}</span>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
 
     <div class="space-y-1 pt-4 px-1 border-t border-zinc-200">
