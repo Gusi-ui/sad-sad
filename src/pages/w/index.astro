@@ -92,28 +92,46 @@ const workerName = worker?.name ?? 'TRABAJADORA';
   </nav>
 
   <script>
-    // Lógica simple para simular el inicio y fin de servicio
-    let isServiceActive = false;
+    // Estado simulado compartido con la barra inferior móvil.
+    const SERVICE_KEY = 'sad_worker_service_active_v1';
     const btn = document.getElementById('btn-iniciar-servicio');
     const iconContainer = document.getElementById('icon-servicio');
     const textSpan = document.getElementById('text-servicio');
 
+    const applyServiceState = () => {
+      const isServiceActive = localStorage.getItem(SERVICE_KEY) === '1';
+      if (!iconContainer || !textSpan) return;
+      if (isServiceActive) {
+        iconContainer.classList.remove('bg-emerald-50', 'text-emerald-600');
+        iconContainer.classList.add('bg-red-500', 'text-white', 'animate-pulse');
+        iconContainer.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>';
+        textSpan.textContent = 'Finalizar servicio';
+        textSpan.classList.add('text-red-600');
+      } else {
+        iconContainer.classList.remove('bg-red-500', 'text-white', 'animate-pulse');
+        iconContainer.classList.add('bg-emerald-50', 'text-emerald-600');
+        iconContainer.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
+        textSpan.textContent = 'Iniciar servicio';
+        textSpan.classList.remove('text-red-600');
+      }
+    };
+
     if (btn && iconContainer && textSpan) {
+      applyServiceState();
+
       btn.addEventListener('click', () => {
-        isServiceActive = !isServiceActive;
-        if (isServiceActive) {
-          iconContainer.classList.remove('bg-emerald-50', 'text-emerald-600');
-          iconContainer.classList.add('bg-red-500', 'text-white', 'animate-pulse');
-          iconContainer.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>';
-          textSpan.textContent = 'Finalizar servicio';
-          textSpan.classList.add('text-red-600');
-        } else {
-          iconContainer.classList.remove('bg-red-500', 'text-white', 'animate-pulse');
-          iconContainer.classList.add('bg-emerald-50', 'text-emerald-600');
-          iconContainer.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
-          textSpan.textContent = 'Iniciar servicio';
-          textSpan.classList.remove('text-red-600');
+        const next = localStorage.getItem(SERVICE_KEY) !== '1';
+        localStorage.setItem(SERVICE_KEY, next ? '1' : '0');
+        applyServiceState();
+        window.dispatchEvent(new CustomEvent('sad-service-state-change', { detail: { active: next } }));
+      });
+
+      window.addEventListener('sad-service-state-change', (event) => {
+        const customEvent = event instanceof CustomEvent ? event : null;
+        if (typeof customEvent?.detail?.active === 'boolean') {
+          localStorage.setItem(SERVICE_KEY, customEvent.detail.active ? '1' : '0');
         }
+        applyServiceState();
       });
     }
   </script>

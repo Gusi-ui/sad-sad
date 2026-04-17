@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { buildPushHTTPRequest } from '@pushforge/builder';
 import { randomId } from './crypto';
+import { createWorkerNotifications } from './worker-notifications';
 
 type StoredSub = {
   id: string;
@@ -74,14 +75,23 @@ export const sendPushToWorkerIds = async (
   workerIds: string[],
   message: { title: string; body: string; url?: string }
 ) => {
+  const uniq = Array.from(new Set(workerIds.filter(Boolean)));
+  if (uniq.length === 0) return { ok: true as const, sent: 0 };
+
+  // Siempre guardamos el aviso en la mensajería interna, aunque el push no esté configurado.
+  await createWorkerNotifications(database, uniq, {
+    category: 'planning',
+    title: message.title,
+    body: message.body,
+    url: message.url ?? '/w/planning',
+  });
+
   if (!isPushConfigured()) return { ok: false as const, reason: 'not_configured' as const };
 
   const privateJWK = safeParsePrivateJwk();
   if (!privateJWK) return { ok: false as const, reason: 'not_configured' as const };
 
   const adminContact = getVapidSubject();
-  const uniq = Array.from(new Set(workerIds.filter(Boolean)));
-  if (uniq.length === 0) return { ok: true as const, sent: 0 };
 
   // D1 no soporta bind de arrays directamente de forma portable, así que generamos placeholders.
   const placeholders = uniq.map(() => '?').join(',');
@@ -129,4 +139,3 @@ export const sendPushToWorkerIds = async (
 
   return { ok: true as const, sent };
 };
-
