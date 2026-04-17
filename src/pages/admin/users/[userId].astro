@@ -43,6 +43,30 @@ if (Astro.request.method === 'POST') {
         )
         .bind(name, address || null, notes || null, active, quotaDb, userId)
         .run();
+
+      const preferred = await database
+        .prepare(
+          `SELECT DISTINCT preferred_worker_id as id
+           FROM service_templates
+           WHERE service_user_id = ? AND preferred_worker_id IS NOT NULL`
+        )
+        .bind(userId)
+        .all<{ id: string }>();
+
+      const affectedAssigned = await database
+        .prepare(
+          `SELECT DISTINCT assigned_worker_id as id
+           FROM assignments
+           WHERE service_user_id = ? AND status != 'done' AND assigned_worker_id IS NOT NULL`
+        )
+        .bind(userId)
+        .all<{ id: string }>();
+
+      const ids = Array.from(new Set([...preferred.results.map((r) => r.id), ...affectedAssigned.results.map((r) => r.id)]));
+      if (ids.length > 0) {
+        await bumpManyWorkerAssignmentsVersions(database, ids);
+        queuePush(ids);
+      }
     }
     return Astro.redirect(`/admin/users/${userId}`);
   }
@@ -84,6 +108,11 @@ if (Astro.request.method === 'POST') {
       }
     }
 
+    if (preferredWorkerId) {
+      await bumpManyWorkerAssignmentsVersions(database, [preferredWorkerId]);
+      queuePush([preferredWorkerId]);
+    }
+
     return Astro.redirect(`/admin/users/${userId}`);
   }
 
@@ -100,6 +129,10 @@ if (Astro.request.method === 'POST') {
     const safeRequiredWorkerType = allowedWorkerTypes.has(requiredWorkerType) ? requiredWorkerType : 'laborable';
 
     if (templateId && timeOk(startTime) && timeOk(endTime)) {
+      const previous = await database
+        .prepare(`SELECT preferred_worker_id FROM service_templates WHERE id = ? AND service_user_id = ?`)
+        .bind(templateId, userId)
+        .first<{ preferred_worker_id: string | null }>();
       const today = toYmd(new Date());
       const affected = await database
         .prepare(
@@ -128,7 +161,13 @@ if (Astro.request.method === 'POST') {
         .bind(startTime, endTime, templateId, today)
         .run();
 
-      const ids = affected.results.map((r) => r.id);
+      const ids = Array.from(
+        new Set([
+          ...affected.results.map((r) => r.id),
+          ...(previous?.preferred_worker_id ? [previous.preferred_worker_id] : []),
+          ...(preferredWorkerId ? [preferredWorkerId] : [])
+        ])
+      );
       await bumpManyWorkerAssignmentsVersions(database, ids);
       queuePush(ids);
     }
@@ -139,6 +178,10 @@ if (Astro.request.method === 'POST') {
   if (action === 'delete_template') {
     const templateId = String(formData.get('templateId') ?? '').trim();
     if (templateId) {
+      const previous = await database
+        .prepare(`SELECT preferred_worker_id FROM service_templates WHERE id = ? AND service_user_id = ?`)
+        .bind(templateId, userId)
+        .first<{ preferred_worker_id: string | null }>();
       const affected = await database
         .prepare(
           `SELECT DISTINCT assigned_worker_id as id
@@ -166,7 +209,9 @@ if (Astro.request.method === 'POST') {
           .bind(userId)
           .run();
       }
-      const ids = affected.results.map((r) => r.id);
+      const ids = Array.from(
+        new Set([...affected.results.map((r) => r.id), ...(previous?.preferred_worker_id ? [previous.preferred_worker_id] : [])])
+      );
       await bumpManyWorkerAssignmentsVersions(database, ids);
       queuePush(ids);
     }

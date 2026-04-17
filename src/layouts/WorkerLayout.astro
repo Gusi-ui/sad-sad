@@ -320,6 +320,8 @@ const assignmentsVersion = workerId ? await getWorkerAssignmentsVersion(db(), wo
               p.startsWith('/w/day/') ||
               p === '/w/week' ||
               p === '/w/month' ||
+              p === '/w/users' ||
+              p.startsWith('/w/users/') ||
               p === '/w/planning' ||
               p.startsWith('/w/planning/');
             if (isPlanning) setTimeout(() => location.reload(), 900);
@@ -354,6 +356,8 @@ const assignmentsVersion = workerId ? await getWorkerAssignmentsVersion(db(), wo
                 p.startsWith('/w/day/') ||
                 p === '/w/week' ||
                 p === '/w/month' ||
+                p === '/w/users' ||
+                p.startsWith('/w/users/') ||
                 p === '/w/planning' ||
                 p.startsWith('/w/planning/');
               if (isPlanning) setTimeout(() => location.reload(), 900);
