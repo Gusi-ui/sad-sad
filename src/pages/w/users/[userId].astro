@@ -47,12 +47,48 @@ const user = await database
 
 if (!user) return Astro.redirect('/w/users');
 
+const upcoming = await database
+  .prepare(
+    `SELECT date, planned_start, planned_end, kind
+     FROM assignments
+     WHERE assigned_worker_id = ?
+       AND service_user_id = ?
+       AND status = 'planned'
+       AND date >= ?
+     ORDER BY date ASC, planned_start ASC
+     LIMIT 10`
+  )
+  .bind(workerId, userId, todayYmd)
+  .all<{ date: string; planned_start: string; planned_end: string; kind: string }>();
+
 const trim = (v: string | null) => (v ?? '').trim();
 const phone = trim(user.phone);
 const address = trim(user.address);
 const notes = trim(user.notes);
 const phoneHref = phone ? `tel:${phone.replace(/[^\d+]/g, '')}` : null;
 const mapsHref = address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}` : null;
+
+const timeToMinutes = (hhmm: string) => {
+  const [hRaw, mRaw] = hhmm.split(':');
+  const h = Number(hRaw);
+  const m = Number(mRaw);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return h * 60 + m;
+};
+
+const formatDuration = (minutes: number) => {
+  const total = Math.max(0, Math.floor(minutes));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${h} h ${String(m).padStart(2, '0')} min`;
+};
+
+const formatYmdShort = (ymd: string) => {
+  const p = ymd.split('-');
+  if (p.length !== 3) return ymd;
+  return `${p[2]}/${p[1]}/${p[0]}`;
+};
 ---
 
 <WorkerLayout title={user.name}>
@@ -111,6 +147,51 @@ const mapsHref = address ? `https://www.google.com/maps/search/?api=1&query=${en
         Estas notas las actualiza coordinación en el panel de control (tareas, indicaciones y cualquier información relevante).
       </p>
     </section>
+
+    <section class="mt-4 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+      <div class="flex items-center justify-between gap-3">
+        <div class="text-xs uppercase tracking-wider text-zinc-500">Próximos servicios</div>
+        <div class="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] font-semibold text-zinc-700">
+          {upcoming.results.length}
+        </div>
+      </div>
+
+      <div class="mt-3 space-y-2">
+        {upcoming.results.map((a) => {
+          const start = timeToMinutes(a.planned_start) ?? 0;
+          const end = timeToMinutes(a.planned_end) ?? 0;
+          const durationMin = Math.max(0, end - start);
+          const durationStr = formatDuration(durationMin);
+
+          return (
+            <a
+              class="group block rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 transition hover:border-[#0284C7]/40 hover:bg-white hover:shadow-sm"
+              href={`/w/day/${a.date}`}
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="text-xs font-semibold text-zinc-700">{formatYmdShort(a.date)}</div>
+                  <div class="mt-0.5 text-sm font-bold text-[#1E3A8A]">
+                    {a.planned_start} – {a.planned_end}
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700">
+                    {durationStr}
+                  </span>
+                  <svg class="mt-0.5 text-zinc-400 transition group-hover:text-[#0284C7]" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                </div>
+              </div>
+            </a>
+          );
+        })}
+
+        {upcoming.results.length === 0 && (
+          <div class="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm text-zinc-500 italic">
+            No hay servicios próximos para este usuario/a.
+          </div>
+        )}
+      </div>
+    </section>
   </main>
 </WorkerLayout>
-
