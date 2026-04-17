@@ -69,7 +69,12 @@ const contracts = await db()
   .all<{ hours_per_week: number; hours_per_month: number | null; start_date: string; end_date: string | null }>();
 
 const contract = contracts.results.find(c => c.start_date <= endYmd && (!c.end_date || c.end_date >= startYmd));
-const monthlyContractHours = contract?.hours_per_month ?? 0; // Si no hay contrato mensual
+const contractHoursPerWeek = contract?.hours_per_week ?? null;
+const contractHoursPerMonthExplicit = contract?.hours_per_month ?? null;
+const contractHoursPerMonthFromWeek = contractHoursPerWeek === null ? null : (contractHoursPerWeek * 52.14) / 12;
+const contractHoursPerMonth = contractHoursPerMonthExplicit ?? contractHoursPerMonthFromWeek;
+const contractMinutes = contractHoursPerMonth === null ? 0 : contractHoursPerMonth * 60;
+const hasMonthlyContract = contractHoursPerMonth !== null;
 
 const assignmentsByDate = new Map<string, Array<{ planned_start: string; planned_end: string }>>();
 for (const a of assignments.results) {
@@ -109,7 +114,6 @@ for (let day = 1; day <= monthEnd.getUTCDate(); day += 1) {
 }
 
 const totalPayableMinutes = totalServicesMinutes + totalBreakMinutes + totalTravelMinutes;
-const contractMinutes = monthlyContractHours * 60;
 const monthlyDeficitMinutes = totalPayableMinutes - contractMinutes;
 
 const daysInMonth = monthEnd.getUTCDate();
@@ -145,6 +149,7 @@ const totalDesplazamientoStr = formatHoursMins(totalTravelMinutes);
 const totalStr = formatHoursMins(totalPayableMinutes);
 const deficitStr = formatHoursMins(Math.abs(monthlyDeficitMinutes));
 const deficitIsPositive = monthlyDeficitMinutes >= 0;
+const contractMonthStr = contractHoursPerMonth === null ? '—' : formatHoursMins(contractHoursPerMonth * 60);
 
 ---
 
@@ -242,14 +247,14 @@ const deficitIsPositive = monthlyDeficitMinutes >= 0;
         <span class="text-[15px] font-bold text-zinc-800">Total suma horas:</span>
         <span class="text-[15px] font-bold text-[#0284C7]">{totalStr}</span>
       </div>
-      {monthlyContractHours > 0 && (
+      {hasMonthlyContract && (
         <>
           <div class="flex items-center justify-between pt-1">
             <span class="text-[13px] text-zinc-500">Contrato Mensual:</span>
-            <span class="text-[13px] font-bold text-zinc-700">{monthlyContractHours} h</span>
+            <span class="text-[13px] font-bold text-zinc-700">{contractMonthStr}</span>
           </div>
           <div class="flex items-center justify-between pt-1">
-            <span class="text-[13px] text-zinc-500">Balance Mensual:</span>
+            <span class="text-[13px] text-zinc-500">Delta Mensual:</span>
             <span class={`text-[13px] font-bold ${deficitIsPositive ? 'text-emerald-600' : 'text-red-600'}`}>
               {deficitIsPositive ? '+' : '-'}{deficitStr}
             </span>
