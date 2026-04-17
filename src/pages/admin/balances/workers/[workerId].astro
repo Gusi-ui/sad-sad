@@ -2,7 +2,6 @@
 import AppLayout from '../../../../layouts/AppLayout.astro';
 import { db } from '../../../../lib/db';
 import { computeWorkerBalanceDetail, hours } from '../../../../lib/balances';
-import { randomId } from '../../../../lib/crypto';
 import { formatHours } from '../../../../lib/month-hours';
 
 export const prerender = false;
@@ -16,156 +15,8 @@ const month = Number(Astro.url.searchParams.get('month') ?? now.getMonth() + 1);
 const safeYear = Number.isFinite(year) ? year : now.getFullYear();
 const safeMonth = Number.isFinite(month) && month >= 1 && month <= 12 ? month : now.getMonth() + 1;
 
-const travelTemplateError = String(Astro.url.searchParams.get('travelTemplateError') ?? '').trim();
-
-const pad2 = (n: number) => String(n).padStart(2, '0');
-const toYmdUtc = (d: Date) => `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
-const addDaysUtc = (ymd: string, days: number) => {
-  const base = new Date(`${ymd}T00:00:00Z`);
-  base.setUTCDate(base.getUTCDate() + days);
-  return toYmdUtc(base);
-};
-const mondayOfWeekUtc = (ymd: string) => {
-  const d = new Date(`${ymd}T00:00:00Z`);
-  const jsDow = d.getUTCDay(); // 0..6 (dom..sab)
-  const mondayShift = (jsDow + 6) % 7; // lun=0
-  d.setUTCDate(d.getUTCDate() - mondayShift);
-  return toYmdUtc(d);
-};
-
-if (Astro.request.method === 'POST') {
-  const formData = await Astro.request.formData();
-  const action = String(formData.get('_action') ?? '');
-  const database = db();
-  if (action === 'set_travel') {
-    const date = String(formData.get('date') ?? '').trim();
-    const travelRaw = String(formData.get('travelMinutes') ?? '').trim();
-    const travelParsed = travelRaw === '' ? 0 : Number(travelRaw);
-    const travel = Number.isFinite(travelParsed) && travelParsed >= 0 ? Math.floor(travelParsed) : 0;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      await database
-        .prepare(
-          `INSERT INTO worker_day_extras (id, worker_id, date, travel_minutes, source)
-           VALUES (?, ?, ?, ?, 'manual')
-           ON CONFLICT(worker_id, date) DO UPDATE SET
-             travel_minutes = excluded.travel_minutes,
-             source = 'manual',
-             updated_at = datetime('now')`
-        )
-        .bind(randomId(), workerId, date, travel)
-        .run();
-    }
-    return Astro.redirect(`/admin/balances/workers/${workerId}?year=${safeYear}&month=${safeMonth}`);
-  }
-
-  if (action === 'set_travel_template') {
-    const parseMinutes = (k: string) => {
-      const raw = String(formData.get(k) ?? '').trim();
-      const parsed = raw === '' ? 0 : Number(raw);
-      return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 0;
-    };
-    const payload: Array<{ weekday: number; minutes: number }> = [
-      { weekday: 1, minutes: parseMinutes('travelMon') },
-      { weekday: 2, minutes: parseMinutes('travelTue') },
-      { weekday: 3, minutes: parseMinutes('travelWed') },
-      { weekday: 4, minutes: parseMinutes('travelThu') },
-      { weekday: 5, minutes: parseMinutes('travelFri') },
-      { weekday: 6, minutes: parseMinutes('travelSat') },
-      { weekday: 0, minutes: parseMinutes('travelSun') }
-    ];
-    try {
-      for (const item of payload) {
-        await database
-          .prepare(
-            `INSERT INTO worker_travel_templates (id, worker_id, weekday, travel_minutes)
-             VALUES (?, ?, ?, ?)
-             ON CONFLICT(worker_id, weekday) DO UPDATE SET
-               travel_minutes = excluded.travel_minutes,
-               updated_at = datetime('now')`
-          )
-          .bind(randomId(), workerId, item.weekday, item.minutes)
-          .run();
-      }
-
-      const startYmd = `${safeYear}-${pad2(safeMonth)}-01`;
-      const endYmd = toYmdUtc(new Date(Date.UTC(safeYear, safeMonth, 0)));
-      for (const item of payload) {
-        await database
-          .prepare(
-            `UPDATE worker_day_extras
-             SET travel_minutes = ?, updated_at = datetime('now')
-             WHERE worker_id = ?
-               AND date >= ? AND date <= ?
-               AND source = 'template'
-               AND CAST(strftime('%w', date) AS INTEGER) = ?`
-          )
-          .bind(item.minutes, workerId, startYmd, endYmd, item.weekday)
-          .run();
-      }
-    } catch {
-      return Astro.redirect(`/admin/balances/workers/${workerId}?year=${safeYear}&month=${safeMonth}&travelTemplateError=missing_table`);
-    }
-    return Astro.redirect(`/admin/balances/workers/${workerId}?year=${safeYear}&month=${safeMonth}`);
-  }
-
-  if (action === 'apply_travel_template_week') {
-    const weekStart = String(formData.get('weekStart') ?? '').trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) {
-      let map = new Map<number, number>();
-      try {
-        const rows = await database
-          .prepare(`SELECT weekday, travel_minutes FROM worker_travel_templates WHERE worker_id = ?`)
-          .bind(workerId)
-          .all<{ weekday: number; travel_minutes: number }>();
-        map = new Map(rows.results.map((r) => [r.weekday, r.travel_minutes ?? 0]));
-      } catch {
-        return Astro.redirect(`/admin/balances/workers/${workerId}?year=${safeYear}&month=${safeMonth}&travelTemplateError=missing_table`);
-      }
-      for (let i = 0; i < 7; i += 1) {
-        const ymd = addDaysUtc(weekStart, i);
-        const weekday = new Date(`${ymd}T00:00:00Z`).getUTCDay();
-        const travel = Math.max(0, Number(map.get(weekday) ?? 0) || 0);
-        await database
-          .prepare(
-            `INSERT INTO worker_day_extras (id, worker_id, date, travel_minutes, source)
-             VALUES (?, ?, ?, ?, 'template')
-             ON CONFLICT(worker_id, date) DO UPDATE SET
-               travel_minutes = excluded.travel_minutes,
-               source = 'template',
-               updated_at = datetime('now')`
-          )
-          .bind(randomId(), workerId, ymd, travel)
-          .run();
-      }
-    }
-    return Astro.redirect(`/admin/balances/workers/${workerId}?year=${safeYear}&month=${safeMonth}`);
-  }
-}
-
 const detail = await computeWorkerBalanceDetail(db(), workerId, safeYear, safeMonth);
 if (!detail) return Astro.redirect('/admin/balances/workers');
-
-let templateRows: { results: Array<{ weekday: number; travel_minutes: number }> } = { results: [] };
-let travelTemplateAvailable = true;
-try {
-  templateRows = await db()
-    .prepare(`SELECT weekday, travel_minutes FROM worker_travel_templates WHERE worker_id = ?`)
-    .bind(workerId)
-    .all<{ weekday: number; travel_minutes: number }>();
-} catch {
-  travelTemplateAvailable = false;
-}
-const travelTemplateMap = new Map(templateRows.results.map((r) => [r.weekday, r.travel_minutes ?? 0]));
-const travelTemplate = {
-  mon: travelTemplateMap.get(1) ?? 0,
-  tue: travelTemplateMap.get(2) ?? 0,
-  wed: travelTemplateMap.get(3) ?? 0,
-  thu: travelTemplateMap.get(4) ?? 0,
-  fri: travelTemplateMap.get(5) ?? 0,
-  sat: travelTemplateMap.get(6) ?? 0,
-  sun: travelTemplateMap.get(0) ?? 0
-};
-const weeksWithMonday = detail.weeks.map((w) => ({ ...w, weekStartMondayYmd: mondayOfWeekUtc(w.startYmd) }));
 
 const fmt = (h: number) => formatHours(h);
 const fmtMin = (m: number) => `${Math.max(0, Math.floor(m))} min`;
@@ -185,14 +36,8 @@ const userBadge = (tag: string) => (tag === 'Sustitución' ? 'bg-amber-100 text-
       <p class="mt-1 text-sm text-zinc-600">Mes: {safeYear}-{String(safeMonth).padStart(2, '0')}</p>
     </div>
   </div>
-  
-  {(travelTemplateError === 'missing_table' || !travelTemplateAvailable) && (
-    <div class="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-      La plantilla semanal de desplazamientos no está disponible en esta base de datos. Aplica la migración 0011 y recarga.
-    </div>
-  )}
 
-  <div class="mt-6 grid gap-4 md:grid-cols-4">
+  <div class="mt-6 grid gap-4 md:grid-cols-5">
     <div class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
       <div class="text-xs uppercase tracking-wider text-zinc-500">Contrato semanal</div>
       <div class="mt-1 text-xl font-bold">{detail.contractHoursPerWeek === null ? '—' : fmt(detail.contractHoursPerWeek)}</div>
@@ -214,12 +59,16 @@ const userBadge = (tag: string) => (tag === 'Sustitución' ? 'bg-amber-100 text-
       <div class="text-xs uppercase tracking-wider text-zinc-500">Horas planificadas</div>
       <div class="mt-1 text-xl font-bold">{fmt(hours(detail.payableMinutes))}</div>
       <div class="mt-1 text-xs text-zinc-600">
-        Servicios: {fmt(hours(detail.plannedMinutes))} · Descansos: {fmtHoursPretty(detail.breakMinutes)} · Desplazamientos: {fmtHoursPretty(detail.travelMinutes)}
+        Servicios: {fmt(hours(detail.plannedMinutes))} · Descansos: {fmtHoursPretty(detail.breakMinutes)}
       </div>
       <div class="mt-1 text-xs text-zinc-600">
         Promedio semanal (ISO): {fmt(detail.avgWeeklyPlannedHours)}
       </div>
 
+    </div>
+    <div class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+      <div class="text-xs uppercase tracking-wider text-zinc-500">Desplazamientos (mes)</div>
+      <div class="mt-1 text-xl font-bold">{fmtHoursPretty(detail.travelMinutes)}</div>
     </div>
     <div class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
       <div class="text-xs uppercase tracking-wider text-zinc-500">Delta mes</div>
@@ -231,48 +80,6 @@ const userBadge = (tag: string) => (tag === 'Sustitución' ? 'bg-amber-100 text-
 
   <section class="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
     <h2 class="text-sm font-semibold">Resumen semanal (ISO)</h2>
-    <div class={`mt-3 rounded-xl border p-4 ${travelTemplateAvailable ? 'border-indigo-200 bg-indigo-50' : 'border-zinc-200 bg-zinc-50 opacity-60'}`}>
-      <div class="text-sm font-semibold text-indigo-900">Plantilla semanal de desplazamientos (minutos)</div>
-      <p class="mt-1 text-xs text-indigo-800">
-        Define un patrón Lun–Dom y aplícalo por semana. Luego puedes ajustar días sueltos en el detalle diario si hace falta.
-      </p>
-      <form method="post" class="mt-3 grid gap-3 sm:grid-cols-4 lg:grid-cols-8">
-        <input type="hidden" name="_action" value="set_travel_template" />
-        <label class="block">
-          <span class="text-xs font-semibold text-zinc-700">Lun</span>
-          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-2 py-1 text-sm" type="number" min="0" step="1" name="travelMon" value={travelTemplate.mon} />
-        </label>
-        <label class="block">
-          <span class="text-xs font-semibold text-zinc-700">Mar</span>
-          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-2 py-1 text-sm" type="number" min="0" step="1" name="travelTue" value={travelTemplate.tue} />
-        </label>
-        <label class="block">
-          <span class="text-xs font-semibold text-zinc-700">Mié</span>
-          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-2 py-1 text-sm" type="number" min="0" step="1" name="travelWed" value={travelTemplate.wed} />
-        </label>
-        <label class="block">
-          <span class="text-xs font-semibold text-zinc-700">Jue</span>
-          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-2 py-1 text-sm" type="number" min="0" step="1" name="travelThu" value={travelTemplate.thu} />
-        </label>
-        <label class="block">
-          <span class="text-xs font-semibold text-zinc-700">Vie</span>
-          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-2 py-1 text-sm" type="number" min="0" step="1" name="travelFri" value={travelTemplate.fri} />
-        </label>
-        <label class="block">
-          <span class="text-xs font-semibold text-zinc-700">Sáb</span>
-          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-2 py-1 text-sm" type="number" min="0" step="1" name="travelSat" value={travelTemplate.sat} />
-        </label>
-        <label class="block">
-          <span class="text-xs font-semibold text-zinc-700">Dom</span>
-          <input class="mt-1 w-full rounded-lg border border-zinc-300 px-2 py-1 text-sm" type="number" min="0" step="1" name="travelSun" value={travelTemplate.sun} />
-        </label>
-        <div class="flex items-end">
-          <button class="w-full rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-800">
-            Guardar
-          </button>
-        </div>
-      </form>
-    </div>
     <div class="mt-3 overflow-hidden rounded-xl border border-zinc-200">
       <table class="w-full text-sm">
         <thead class="bg-zinc-50 text-left text-xs uppercase tracking-wider text-zinc-600">
@@ -280,24 +87,14 @@ const userBadge = (tag: string) => (tag === 'Sustitución' ? 'bg-amber-100 text-
             <th class="px-3 py-2">Semana</th>
             <th class="px-3 py-2">Rango</th>
             <th class="px-3 py-2">Planificado</th>
-            <th class="px-3 py-2"></th>
           </tr>
         </thead>
         <tbody class="divide-y divide-zinc-100">
-          {weeksWithMonday.map((w) => (
+          {detail.weeks.map((w) => (
             <tr>
               <td class="px-3 py-2 font-medium">{w.weekKey}</td>
               <td class="px-3 py-2">{w.startYmd} → {w.endYmd}</td>
               <td class="px-3 py-2">{fmt(hours(w.plannedMinutes))}</td>
-              <td class="px-3 py-2 text-right">
-                <form method="post">
-                  <input type="hidden" name="_action" value="apply_travel_template_week" />
-                  <input type="hidden" name="weekStart" value={w.weekStartMondayYmd} />
-                  <button class="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-800 hover:bg-indigo-100">
-                    Aplicar plantilla
-                  </button>
-                </form>
-              </td>
             </tr>
           ))}
         </tbody>
@@ -308,7 +105,7 @@ const userBadge = (tag: string) => (tag === 'Sustitución' ? 'bg-amber-100 text-
   <section class="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
     <h2 class="text-sm font-semibold">Detalle diario</h2>
     <p class="mt-1 text-sm text-zinc-600">
-      Incluye servicios planificados (aunque aún no se hayan realizado). Si en un día laborable llega a 6h o más de servicios, se suma automáticamente 20 min de descanso. Puedes ajustar los minutos de desplazamiento por día.
+      Incluye servicios planificados (aunque aún no se hayan realizado). Si en un día laborable llega a 6h o más de servicios, se suma automáticamente 20 min de descanso.
     </p>
     <div class="mt-3 overflow-hidden rounded-xl border border-zinc-200">
       <table class="w-full text-sm">
@@ -318,7 +115,6 @@ const userBadge = (tag: string) => (tag === 'Sustitución' ? 'bg-amber-100 text-
             <th class="px-3 py-2">Tipo</th>
             <th class="px-3 py-2">Servicios</th>
             <th class="px-3 py-2">Descanso</th>
-            <th class="px-3 py-2">Desplaz.</th>
             <th class="px-3 py-2">Total</th>
             <th class="px-3 py-2">Usuarios/as</th>
           </tr>
@@ -330,21 +126,6 @@ const userBadge = (tag: string) => (tag === 'Sustitución' ? 'bg-amber-100 text-
               <td class="px-3 py-2">{kindLabel(d.kind)}</td>
               <td class="px-3 py-2">{fmt(hours(d.plannedMinutes))}</td>
               <td class="px-3 py-2">{fmtMin(d.breakMinutes)}</td>
-              <td class="px-3 py-2">
-                <form method="post" class="flex items-center gap-2">
-                  <input type="hidden" name="_action" value="set_travel" />
-                  <input type="hidden" name="date" value={d.ymd} />
-                  <input
-                    class="w-20 rounded-lg border border-zinc-300 px-2 py-1 text-sm"
-                    name="travelMinutes"
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={d.travelMinutes}
-                  />
-                  <button class="rounded-lg bg-zinc-900 px-2 py-1 text-xs font-semibold text-white">OK</button>
-                </form>
-              </td>
               <td class="px-3 py-2 font-semibold">{fmtHoursPretty(d.payableMinutes)}</td>
               <td class="px-3 py-2">
                 {d.users.length === 0 ? (
