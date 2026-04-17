@@ -8,11 +8,55 @@ type Props = {
 };
 
 const { title } = Astro.props;
-
-// Solo worker paths usan este layout, pero lo dejamos defensivo.
+const pathname = Astro.url.pathname;
+const database = db();
 const account = Astro.locals.account;
 const workerId = account?.workerId ?? null;
-const assignmentsVersion = workerId ? await getWorkerAssignmentsVersion(db(), workerId) : 0;
+const assignmentsVersion = workerId ? await getWorkerAssignmentsVersion(database, workerId) : 0;
+
+let unreadMessagesCount = 0;
+if (workerId) {
+  try {
+    const row = await database
+      .prepare(
+        `SELECT COUNT(*) as count
+         FROM worker_notifications
+         WHERE worker_id = ? AND read_at IS NULL`
+      )
+      .bind(workerId)
+      .first<{ count: number }>();
+    unreadMessagesCount = row?.count ?? 0;
+  } catch {
+    unreadMessagesCount = 0;
+  }
+}
+
+const navItems = [
+  {
+    key: 'planning',
+    label: 'Planificación',
+    href: '/w/planning',
+    isActive: pathname === '/w/planning' || pathname.startsWith('/w/day/') || pathname === '/w/today' || pathname === '/w/week' || pathname === '/w/month',
+    unreadCount: 0,
+    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>`
+  },
+  {
+    key: 'users',
+    label: 'Mis usuarios',
+    href: '/w/users',
+    isActive: pathname === '/w/users' || pathname.startsWith('/w/users/'),
+    unreadCount: 0,
+    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>`
+  },
+  {
+    key: 'messages',
+    label: 'Mensajería',
+    href: '/w/messages',
+    isActive: pathname === '/w/messages',
+    unreadCount: unreadMessagesCount,
+    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>`
+  }
+] as const;
 ---
 
 <!doctype html>
@@ -57,9 +101,11 @@ const assignmentsVersion = workerId ? await getWorkerAssignmentsVersion(db(), wo
         </div>
       </div>
 
-      <slot />
+      <main class="pb-24 md:pb-0">
+        <slot />
+      </main>
 
-      <div id="sad-alerts-banner" class="hidden fixed bottom-3 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2 px-3">
+      <div id="sad-alerts-banner" class="hidden fixed bottom-24 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2 px-3 md:bottom-3">
         <div class="rounded-2xl border border-zinc-200 bg-white p-3 shadow-lg">
           <div class="text-sm font-semibold text-zinc-900">Activar avisos de cambios</div>
           <div class="mt-1 text-xs text-zinc-600">
@@ -80,7 +126,7 @@ const assignmentsVersion = workerId ? await getWorkerAssignmentsVersion(db(), wo
       </div>
 
       <!-- Banner iOS: instrucciones para instalar como app (necesario para push real) -->
-      <div id="sad-ios-install" class="hidden fixed bottom-3 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2 px-3">
+      <div id="sad-ios-install" class="hidden fixed bottom-24 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2 px-3 md:bottom-3">
         <div class="rounded-2xl border border-zinc-200 bg-white p-3 shadow-lg">
           <div class="text-sm font-semibold text-zinc-900">Activar notificaciones en iPhone/iPad</div>
           <div class="mt-1 text-xs text-zinc-600 leading-snug">
@@ -102,9 +148,56 @@ const assignmentsVersion = workerId ? await getWorkerAssignmentsVersion(db(), wo
           </div>
         </div>
       </div>
+
+      <nav class="fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-md border-t border-zinc-200/80 bg-white/95 backdrop-blur md:hidden">
+        <ul class="grid grid-cols-4">
+          {navItems.map((item) => (
+            <li>
+              <a
+                href={item.href}
+                class:list={[
+                  'flex min-h-[4.5rem] flex-col items-center justify-center gap-1 px-1 text-[11px] font-semibold transition-colors',
+                  item.isActive ? 'text-sky-700' : 'text-zinc-500 hover:text-zinc-700'
+                ]}
+                aria-current={item.isActive ? 'page' : undefined}
+              >
+                <span class:list={['relative rounded-full p-1.5', item.isActive ? 'bg-sky-100 text-sky-700' : 'text-zinc-500']}>
+                  <Fragment set:html={item.icon} />
+                  {item.key === 'messages' && (
+                    <span
+                      data-worker-message-badge
+                      class:list={[
+                        'absolute -right-1 -top-1 inline-flex min-w-[1rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-bold leading-4 text-white',
+                        (item.unreadCount ?? 0) > 0 ? '' : 'hidden'
+                      ]}
+                    >
+                      {(item.unreadCount ?? 0) > 0 ? (item.unreadCount! > 99 ? '99+' : item.unreadCount) : ''}
+                    </span>
+                  )}
+                </span>
+                <span>{item.label}</span>
+              </a>
+            </li>
+          ))}
+          <li>
+            <button
+              id="worker-service-toggle"
+              type="button"
+              class="flex min-h-[4.5rem] w-full flex-col items-center justify-center gap-1 px-1 text-[11px] font-semibold text-emerald-700 transition-colors"
+              aria-pressed="false"
+              title="Iniciar servicio"
+            >
+              <span id="worker-service-toggle-icon" class="rounded-full bg-emerald-100 p-1.5 text-emerald-700">
+                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+              </span>
+              <span id="worker-service-toggle-label">Iniciar</span>
+            </button>
+          </li>
+        </ul>
+      </nav>
     </div>
 
-    <script is:inline define:vars={{ assignmentsVersion }}>
+    <script is:inline define:vars={{ assignmentsVersion, unreadMessagesCount }}>
       // Avisos (sonido + notificación si el navegador lo permite).
       const STORAGE_KEY = 'sad_alerts_enabled_v1';
       const isEnabled = () => localStorage.getItem(STORAGE_KEY) === '1';
@@ -120,12 +213,87 @@ const assignmentsVersion = workerId ? await getWorkerAssignmentsVersion(db(), wo
       const toast = document.getElementById('sad-toast');
       const toastClose = document.getElementById('sad-toast-close');
       const toastRefresh = document.getElementById('sad-toast-refresh');
+      const serviceToggleBtn = document.getElementById('worker-service-toggle');
+      const serviceToggleIcon = document.getElementById('worker-service-toggle-icon');
+      const serviceToggleLabel = document.getElementById('worker-service-toggle-label');
+      const serviceStateKey = 'sad_worker_service_active_v1';
+      const messageBadges = Array.from(document.querySelectorAll('[data-worker-message-badge]'));
+      let lastUnreadMessagesCount = Number(unreadMessagesCount) || 0;
 
       const showToast = () => { if (toast) toast.classList.remove('hidden'); };
       const hideToast = () => { if (toast) toast.classList.add('hidden'); };
 
       if (toastClose) toastClose.addEventListener('click', hideToast);
       if (toastRefresh) toastRefresh.addEventListener('click', () => location.reload());
+
+      const renderMessageBadges = (count) => {
+        for (const badge of messageBadges) {
+          if (!(badge instanceof HTMLElement)) continue;
+          if (count > 0) {
+            badge.classList.remove('hidden');
+            badge.textContent = count > 99 ? '99+' : String(count);
+          } else {
+            badge.classList.add('hidden');
+            badge.textContent = '';
+          }
+        }
+      };
+      renderMessageBadges(Number(unreadMessagesCount) || 0);
+
+      const refreshMessageBadges = async () => {
+        try {
+          const res = await fetch('/api/worker/messages/unread-count', {
+            method: 'GET',
+            headers: { accept: 'application/json' },
+          });
+          if (!res.ok) return;
+          const data = await res.json().catch(() => ({}));
+          const count = Number(data?.unreadCount ?? 0);
+          if (Number.isFinite(count)) {
+            const nextCount = Math.max(0, Math.floor(count));
+            if (nextCount > lastUnreadMessagesCount) {
+              playNewMessageAlert().catch(() => {});
+            }
+            lastUnreadMessagesCount = nextCount;
+            renderMessageBadges(nextCount);
+          }
+        } catch {}
+      };
+
+      const applyServiceState = (active) => {
+        if (!serviceToggleBtn || !serviceToggleIcon || !serviceToggleLabel) return;
+        if (active) {
+          serviceToggleBtn.classList.remove('text-emerald-700');
+          serviceToggleBtn.classList.add('text-rose-700');
+          serviceToggleBtn.setAttribute('aria-pressed', 'true');
+          serviceToggleBtn.title = 'Finalizar servicio';
+          serviceToggleIcon.classList.remove('bg-emerald-100', 'text-emerald-700');
+          serviceToggleIcon.classList.add('bg-rose-100', 'text-rose-700');
+          serviceToggleIcon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>';
+          serviceToggleLabel.textContent = 'Finalizar';
+        } else {
+          serviceToggleBtn.classList.remove('text-rose-700');
+          serviceToggleBtn.classList.add('text-emerald-700');
+          serviceToggleBtn.setAttribute('aria-pressed', 'false');
+          serviceToggleBtn.title = 'Iniciar servicio';
+          serviceToggleIcon.classList.remove('bg-rose-100', 'text-rose-700');
+          serviceToggleIcon.classList.add('bg-emerald-100', 'text-emerald-700');
+          serviceToggleIcon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
+          serviceToggleLabel.textContent = 'Iniciar';
+        }
+      };
+
+      const initialServiceActive = localStorage.getItem(serviceStateKey) === '1';
+      applyServiceState(initialServiceActive);
+
+      if (serviceToggleBtn) {
+        serviceToggleBtn.addEventListener('click', () => {
+          const next = serviceToggleBtn.getAttribute('aria-pressed') !== 'true';
+          localStorage.setItem(serviceStateKey, next ? '1' : '0');
+          applyServiceState(next);
+          window.dispatchEvent(new CustomEvent('sad-service-state-change', { detail: { active: next } }));
+        });
+      }
 
       const maybeShowBanner = () => {
         if (!banner) return;
@@ -171,6 +339,37 @@ const assignmentsVersion = workerId ? await getWorkerAssignmentsVersion(db(), wo
         }
       };
 
+      const playNewMessageAlert = async () => {
+        try {
+          await unlockAudio();
+          if (!audioUnlocked || !audioCtx) return;
+          const playTone = (frequency, gainValue, durationMs, delayMs = 0) => {
+            const o = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            o.type = 'sawtooth';
+            o.frequency.value = frequency;
+            g.gain.setValueAtTime(gainValue, audioCtx.currentTime + delayMs / 1000);
+            g.gain.exponentialRampToValueAtTime(
+              0.001,
+              audioCtx.currentTime + delayMs / 1000 + durationMs / 1000
+            );
+            o.connect(g);
+            g.connect(audioCtx.destination);
+            const startAt = audioCtx.currentTime + delayMs / 1000;
+            o.start(startAt);
+            o.stop(startAt + durationMs / 1000);
+          };
+          // Sonido fuerte y largo (triple pulso) para nuevos mensajes.
+          playTone(1600, 0.65, 220, 0);
+          playTone(1200, 0.6, 240, 240);
+          playTone(900, 0.55, 300, 520);
+          try { if (navigator.vibrate) navigator.vibrate([200, 120, 220]); } catch {}
+        } catch {}
+      };
+
+      window.addEventListener('pointerdown', () => { unlockAudio().catch(() => {}); }, { once: true });
+      window.addEventListener('keydown', () => { unlockAudio().catch(() => {}); }, { once: true });
+
       const beep = async () => {
         if (!isEnabled()) return;
         try {
@@ -196,6 +395,7 @@ const assignmentsVersion = workerId ? await getWorkerAssignmentsVersion(db(), wo
 
         await beep();
         showToast();
+        await refreshMessageBadges();
 
         // Notificación del navegador (solo si el usuario dio permiso)
         try {
@@ -245,6 +445,10 @@ const assignmentsVersion = workerId ? await getWorkerAssignmentsVersion(db(), wo
       }
 
       maybeShowBanner();
+      refreshMessageBadges().catch(() => {});
+      setInterval(() => {
+        refreshMessageBadges().catch(() => {});
+      }, 30_000);
 
       // --- PUSH REAL (Service Worker + PushManager) ---
       const urlBase64ToUint8Array = (base64String) => {
