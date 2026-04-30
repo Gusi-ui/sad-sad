@@ -22,7 +22,7 @@
   "dependencies": {
     "@astrojs/check": "^0.9.9",
     "@astrojs/cloudflare": "^13.2.2",
-    "@pushforge/builder": "^2.0.4",
+    "@pushforge/builder": "^2.0.5",
     "@tailwindcss/vite": "^4.2.4",
     "astro": "^6.1.10",
     "tailwindcss": "^4.2.2",
