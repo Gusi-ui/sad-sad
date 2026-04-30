@@ -20,14 +20,14 @@
     "check": "astro check && npm run build"
   },
   "dependencies": {
-    "@astrojs/check": "^0.9.8",
-    "@astrojs/cloudflare": "^13.2.0",
+    "@astrojs/check": "^0.9.9",
+    "@astrojs/cloudflare": "^13.2.2",
     "@pushforge/builder": "^2.0.4",
     "@tailwindcss/vite": "^4.2.4",
-    "astro": "^6.1.9",
+    "astro": "^6.1.10",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.9.3",
-    "wrangler": "^4.83.0"
+    "wrangler": "^4.86.0"
   },
   "overrides": {
     "vite": "^7"
