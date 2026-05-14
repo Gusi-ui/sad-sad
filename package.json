@@ -23,7 +23,7 @@
     "@astrojs/check": "^0.9.9",
     "@astrojs/cloudflare": "^13.5.1",
     "@pushforge/builder": "^2.0.5",
-    "@tailwindcss/vite": "^4.2.4",
+    "@tailwindcss/vite": "^4.3.0",
     "astro": "^6.2.2",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.9.3",
