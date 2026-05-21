@@ -21,13 +21,13 @@
   },
   "dependencies": {
     "@astrojs/check": "^0.9.9",
-    "@astrojs/cloudflare": "^13.5.1",
+    "@astrojs/cloudflare": "^13.5.3",
     "@pushforge/builder": "^2.0.5",
     "@tailwindcss/vite": "^4.3.0",
-    "astro": "^6.2.2",
+    "astro": "^6.3.6",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.9.3",
-    "wrangler": "^4.90.1"
+    "wrangler": "^4.93.0"
   },
   "overrides": {
     "vite": "^7"
