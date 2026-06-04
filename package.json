@@ -21,10 +21,10 @@
   },
   "dependencies": {
     "@astrojs/check": "^0.9.9",
-    "@astrojs/cloudflare": "^13.5.5",
+    "@astrojs/cloudflare": "^13.6.1",
     "@pushforge/builder": "^2.0.5",
     "@tailwindcss/vite": "^4.3.0",
-    "astro": "^6.3.8",
+    "astro": "^6.4.4",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.9.3",
     "wrangler": "^4.95.0"
