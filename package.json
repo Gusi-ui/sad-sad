@@ -24,10 +24,10 @@
     "@astrojs/cloudflare": "^13.7.0",
     "@pushforge/builder": "^2.0.5",
     "@tailwindcss/vite": "^4.3.0",
-    "astro": "^6.4.6",
+    "astro": "^6.4.8",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.9.3",
-    "wrangler": "^4.99.0"
+    "wrangler": "^4.101.0"
   },
   "overrides": {
     "vite": "^7"
